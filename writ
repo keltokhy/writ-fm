@@ -164,7 +164,7 @@ cmd_start() {
         ""|core)
             log "Starting core..."
             start_one icecast; start_one stream; start_one api; start_one tunnel
-            start_one talkgen
+            start_one talkgen; start_one listener
             echo ""; ok "Core up. tmux attach -t $SESSION" ;;
         all)
             cmd_start core; echo ""
