@@ -220,9 +220,11 @@ def update_now_playing(
     if caption is not None:
         new_info["ai_generated"] = True
         new_info["caption"] = caption
-    # Mutate in-place so the API thread's reference stays valid
-    current_track_info.clear()
+    # Atomic-ish update: overwrite all keys at once (no clear() gap)
     current_track_info.update(new_info)
+    for k in list(current_track_info):
+        if k not in new_info:
+            del current_track_info[k]
     for path in NOW_PLAYING_PATHS:
         try:
             write_json_atomic(path, current_track_info)

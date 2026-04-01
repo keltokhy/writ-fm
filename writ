@@ -160,15 +160,11 @@ stop_one() {
 cmd_start() {
     local target="${1:-}"
     case "$target" in
-        ""|core)
-            log "Starting core..."
+        ""|core|all)
+            log "Starting WRIT-FM..."
             start_one icecast; start_one stream; start_one tunnel
             start_one music-gen; start_one bumpers; start_one talkgen; start_one listener
             echo ""; ok "WRIT-FM up. tmux attach -t $SESSION" ;;
-        all)
-            cmd_start core; echo ""
-            log "Starting content..."
-            start_one music-gen; start_one bumpers; start_one talkgen; start_one listener ;;
         content)
             log "Starting content..."
             start_one music-gen; start_one bumpers; start_one talkgen; start_one listener ;;

@@ -46,7 +46,7 @@ COMPONENTS = {
     "tunnel": {
         "check_url": None,
         "process_name": "cloudflared",
-        "start_cmd": ["cloudflared", "tunnel", "run", "writ-radio"],
+        "start_cmd": ["cloudflared", "tunnel", "run", "wvoid-radio"],
         "critical": True,
     },
 }
