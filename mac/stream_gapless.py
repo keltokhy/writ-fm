@@ -648,9 +648,9 @@ def run():
 
                     record_play(talk_seg, seg_name, "talk", ctx.show_id)
 
-                    # Play 2-3 songs between talk segments (~30% music)
+                    # Play 1-2 bumpers between talk segments
                     if running and encoder_proc.poll() is None:
-                        max_tracks = random.randint(3, 4)
+                        max_tracks = random.randint(1, 2)
                         set_count = 0
 
                         while (running and encoder_proc.poll() is None
@@ -714,8 +714,38 @@ def run():
                                     pass
 
             else:
-                log(f"  No talk segments for {ctx.show_id}; waiting 30s")
-                time.sleep(30)
+                # No talk segments — play bumpers while waiting
+                log(f"  No talk segments for {ctx.show_id} — playing bumpers")
+                for _ in range(3):
+                    if not running or encoder_proc.poll() is not None:
+                        break
+                    # Check if talk appeared
+                    if get_talk_segments(ctx.show_id):
+                        log("  Talk segments arrived — switching")
+                        break
+                    ai_bumper = select_ai_bumper(ctx.show_id)
+                    if not ai_bumper:
+                        log("  No bumpers either — waiting 30s")
+                        time.sleep(30)
+                        break
+                    bpath, bstart, bdur, bcaption, bdisplay = ai_bumper
+                    bname = bdisplay or "AI Music"
+                    log(f"  BUMPER: {bname} ({int(bdur)}s)")
+                    update_now_playing(
+                        bname, "bumper",
+                        show_id=ctx.show_id,
+                        show_name=ctx.show_name,
+                        caption=bcaption,
+                    )
+                    if not pipe_track(bpath, encoder_proc, bstart, bdur):
+                        break
+                    record_play(bpath, bname, "ai_bumper", ctx.show_id)
+                    try:
+                        bpath.unlink()
+                        log(f"    (consumed)")
+                    except Exception:
+                        pass
+                    last_bumper_path = bpath
 
             if running and encoder_proc.poll() is None:
                 log("Queue complete, refreshing...")
