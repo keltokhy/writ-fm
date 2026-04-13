@@ -485,6 +485,7 @@ def pipe_track(filepath: Path, encoder: subprocess.Popen, start_time: float = 0,
     decoder = None
     try:
         decoder = decode_to_pcm(filepath, start_time, duration, is_speech=is_speech)
+        last_cmd_check = time.time()
 
         while running and not skip_current:
             chunk = decoder.stdout.read(8192)
@@ -502,14 +503,18 @@ def pipe_track(filepath: Path, encoder: subprocess.Popen, start_time: float = 0,
                     pass
                 return False
 
-            cmd = check_command()
-            if cmd == "skip":
-                log("Skipping...")
-                skip_current = True
-                break
-            elif cmd == "segment":
-                log("Will play segment next...")
-                force_segment = True
+            # Throttle command file checks to ~1/sec instead of every 8KB chunk
+            now = time.time()
+            if now - last_cmd_check >= 1.0:
+                last_cmd_check = now
+                cmd = check_command()
+                if cmd == "skip":
+                    log("Skipping...")
+                    skip_current = True
+                    break
+                elif cmd == "segment":
+                    log("Will play segment next...")
+                    force_segment = True
 
         return True
 
@@ -639,14 +644,14 @@ def run():
                         log("Talk pipe failed, reconnecting...")
                         break
 
-                    # Delete talk segment after playing
+                    record_play(talk_seg, seg_name, "talk", ctx.show_id)
+
+                    # Delete talk segment after playing (and recording)
                     try:
                         talk_seg.unlink()
                         log(f"    (consumed)")
                     except Exception:
                         pass
-
-                    record_play(talk_seg, seg_name, "talk", ctx.show_id)
 
                     # Play 1-2 bumpers between talk segments
                     if running and encoder_proc.poll() is None:

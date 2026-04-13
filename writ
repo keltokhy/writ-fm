@@ -177,16 +177,20 @@ stop_one() {
 # ── subcommands ──────────────────────────────────────────────
 
 cmd_start() {
-    local target="${1:-}"
+    local target="${1:-core}"
     case "$target" in
-        ""|core|all)
-            log "Starting WRIT-FM..."
+        core)
+            log "Starting WRIT-FM core..."
             start_one icecast; start_one stream; start_one tunnel
-            start_one music-gen; start_one operator; start_one listener
-            echo ""; ok "WRIT-FM up. tmux attach -t $SESSION" ;;
+            echo ""; ok "WRIT-FM core up. tmux attach -t $SESSION" ;;
         content)
             log "Starting content..."
             start_one music-gen; start_one operator; start_one listener ;;
+        all)
+            log "Starting WRIT-FM (all)..."
+            start_one icecast; start_one stream; start_one tunnel
+            start_one music-gen; start_one operator; start_one listener
+            echo ""; ok "WRIT-FM up. tmux attach -t $SESSION" ;;
         *)  validate_component "$target"; start_one "$target" ;;
     esac
 }

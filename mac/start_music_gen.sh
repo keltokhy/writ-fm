@@ -31,7 +31,7 @@ start_server() {
     sleep 1
 
     # Create or reuse a window for the server
-    if ! tmux list-windows -t "$SESSION" -F "#{window_name}" | python3 -c "import sys; sys.exit(0 if 'music-gen' in sys.stdin.read() else 1)" 2>/dev/null; then
+    if ! tmux list-windows -t "$SESSION" -F "#{window_name}" 2>/dev/null | grep -qx "music-gen"; then
         tmux new-window -t "$SESSION" -n "music-gen"
     fi
 
@@ -48,7 +48,7 @@ start_operator() {
     sleep 1
 
     # Create or reuse a window for the operator
-    if ! tmux list-windows -t "$SESSION" -F "#{window_name}" | python3 -c "import sys; sys.exit(0 if 'operator' in sys.stdin.read() else 1)" 2>/dev/null; then
+    if ! tmux list-windows -t "$SESSION" -F "#{window_name}" 2>/dev/null | grep -qx "operator"; then
         tmux new-window -t "$SESSION" -n "operator"
     fi
 
@@ -65,7 +65,7 @@ start_listener() {
     sleep 1
 
     # Create or reuse a window for the listener daemon
-    if ! tmux list-windows -t "$SESSION" -F "#{window_name}" | python3 -c "import sys; sys.exit(0 if 'listener' in sys.stdin.read() else 1)" 2>/dev/null; then
+    if ! tmux list-windows -t "$SESSION" -F "#{window_name}" 2>/dev/null | grep -qx "listener"; then
         tmux new-window -t "$SESSION" -n "listener"
     fi
 

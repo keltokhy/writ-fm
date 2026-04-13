@@ -40,6 +40,7 @@ except ImportError:
     QR_ENABLED = False
 
 # Discogs lookup cache to avoid repeated lookups for the same track
+_DISCOGS_CACHE_MAX = 500
 _discogs_cache: dict[str, dict | None] = {}
 _discogs_last_track: str | None = None
 
@@ -49,6 +50,7 @@ MESSAGES_FILE = Path.home() / ".writ" / "messages.json"
 # Rate limiting for messages
 MESSAGE_COOLDOWN = 300  # 5 minutes between messages per IP
 last_message_times: dict[str, float] = {}
+_messages_lock = threading.Lock()
 
 PORT = int(os.environ.get("WRIT_NOW_PLAYING_PORT", "8001"))
 ICECAST_STATUS_URL = os.environ.get(
@@ -94,7 +96,7 @@ class NowPlayingHandler(http.server.BaseHTTPRequestHandler):
             self._send_json(get_stats())
         elif path == "/schedule":
             self._send_json(get_schedule_info())
-        elif path.startswith("/history"):
+        elif path == "/history":
             self._send_json(get_play_history())
         elif path == "/messages":
             self._send_json(get_messages())
@@ -130,7 +132,10 @@ class NowPlayingHandler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
-        self.wfile.write(json.dumps({"error": msg}).encode())
+        try:
+            self.wfile.write(json.dumps({"error": msg}).encode())
+        except BrokenPipeError:
+            pass
 
     def do_POST(self):
         path = urllib.parse.urlparse(self.path).path.rstrip("/")
@@ -155,8 +160,8 @@ class NowPlayingHandler(http.server.BaseHTTPRequestHandler):
             save_message(message, client_ip)
             last_message_times[client_ip] = now
             self._send_json({"status": "received"})
-        except Exception as e:
-            self._send_error(500, str(e))
+        except Exception:
+            self._send_error(500, "Internal server error")
 
     def do_OPTIONS(self):
         self.send_response(200)
@@ -229,10 +234,10 @@ def track_stats_update(data: dict):
     if current_track and current_track != LAST_TRACK:
         TRACKS_PLAYED += 1
         LAST_TRACK = current_track
-
-    listeners = data.get("listeners", 0)
-    if listeners > 0:
-        TOTAL_LISTENERS_SERVED += listeners
+        # Only count listeners once per track change, not per API hit
+        listeners = data.get("listeners", 0)
+        if listeners > 0:
+            TOTAL_LISTENERS_SERVED += listeners
 
 
 def get_play_history() -> dict:
@@ -256,29 +261,30 @@ def save_message(message: str, ip: str):
     """Save a listener message to the queue."""
     MESSAGES_FILE.parent.mkdir(parents=True, exist_ok=True)
 
-    # Load existing messages
-    messages = []
-    if MESSAGES_FILE.exists():
-        try:
-            with open(MESSAGES_FILE) as f:
-                messages = json.load(f)
-        except:
-            messages = []
+    with _messages_lock:
+        # Load existing messages
+        messages = []
+        if MESSAGES_FILE.exists():
+            try:
+                with open(MESSAGES_FILE) as f:
+                    messages = json.load(f)
+            except Exception:
+                messages = []
 
-    # Add new message
-    messages.append({
-        "message": message,
-        "ip": ip,
-        "timestamp": datetime.now().isoformat(),
-        "read": False,
-    })
+        # Add new message
+        messages.append({
+            "message": message,
+            "ip": ip,
+            "timestamp": datetime.now().isoformat(),
+            "read": False,
+        })
 
-    # Keep only last 100 messages
-    messages = messages[-100:]
+        # Keep only last 100 messages
+        messages = messages[-100:]
 
-    # Save
-    with open(MESSAGES_FILE, "w") as f:
-        json.dump(messages, f, indent=2)
+        # Save
+        with open(MESSAGES_FILE, "w") as f:
+            json.dump(messages, f, indent=2)
 
 
 def get_messages(limit: int = 20) -> list[dict]:
@@ -355,6 +361,15 @@ def _qr_data_url_for(discogs_data: dict | None) -> str | None:
     return generate_qr_data_url(discogs_data["url"])
 
 
+def _evict_discogs_cache() -> None:
+    """Drop oldest half of the in-memory Discogs cache when it exceeds max size."""
+    if len(_discogs_cache) >= _DISCOGS_CACHE_MAX:
+        # dict preserves insertion order; drop the first half
+        keys = list(_discogs_cache)
+        for k in keys[: len(keys) // 2]:
+            del _discogs_cache[k]
+
+
 def get_discogs_info() -> dict:
     """Get Discogs info for the currently playing track.
 
@@ -411,6 +426,7 @@ def get_discogs_info() -> dict:
     # Perform lookup (only if track changed)
     if track_name != _discogs_last_track:
         _discogs_last_track = track_name
+        _evict_discogs_cache()
         result = search_discogs(track_name, vibe)
 
         if result:

@@ -91,9 +91,25 @@ def _load_cache() -> dict:
     return _cache
 
 
+_CACHE_MAX_ENTRIES = 1000
+
+
 def _save_cache() -> None:
-    """Save cache to disk."""
+    """Save cache to disk, pruning expired entries."""
     try:
+        now = time.time()
+        # Remove entries older than TTL before writing
+        expired = [k for k, v in _cache.items()
+                   if now - v.get("timestamp", 0) > CACHE_TTL_SECONDS]
+        for k in expired:
+            del _cache[k]
+
+        # If still over max, drop oldest entries
+        if len(_cache) > _CACHE_MAX_ENTRIES:
+            by_age = sorted(_cache, key=lambda k: _cache[k].get("timestamp", 0))
+            for k in by_age[: len(by_age) - _CACHE_MAX_ENTRIES]:
+                del _cache[k]
+
         CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
         with open(CACHE_FILE, "w") as f:
             json.dump(_cache, f)
