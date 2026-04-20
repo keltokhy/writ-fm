@@ -188,7 +188,21 @@ def build_playlist(show_id: str) -> list[dict]:
     """Build an ordered playlist for the current show.
 
     Returns list of {path, type, name} dicts.
+    Automatically removes news_analysis segments older than 24 hours.
     """
+    # Expire stale news segments
+    show_dir = TALK_DIR / show_id
+    if show_dir.exists():
+        now = time.time()
+        for f in show_dir.glob("news_analysis_*.wav"):
+            age_hours = (now - f.stat().st_mtime) / 3600
+            if age_hours > 24:
+                try:
+                    f.unlink()
+                    log(f"  Expired stale news segment: {f.name} ({age_hours:.0f}h old)")
+                except Exception:
+                    pass
+
     entries = []
     talks = get_talk_segments(show_id)
     bumpers = get_bumpers(show_id)
