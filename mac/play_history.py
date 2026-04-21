@@ -67,20 +67,6 @@ class PlayHistory:
             )
             conn.commit()
 
-    def was_played_recently(self, filepath: str, hours: int = 24) -> bool:
-        """Check if track was played within the last N hours."""
-        cutoff = datetime.now() - timedelta(hours=hours)
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute(
-                """
-                SELECT COUNT(*) FROM plays
-                WHERE filepath = ? AND played_at > ?
-                """,
-                (filepath, cutoff.isoformat()),
-            )
-            count = cursor.fetchone()[0]
-            return count > 0
-
     def get_recent_plays(self, limit: int = 50) -> list[dict]:
         """Get recent plays."""
         with sqlite3.connect(self.db_path) as conn:
@@ -178,11 +164,6 @@ class PlayHistory:
                 "first_play": first,
                 "last_play": last,
             }
-
-    def filter_recent(self, tracks: list[Path], hours: int = 24) -> list[Path]:
-        """Filter out tracks played recently."""
-        return [t for t in tracks if not self.was_played_recently(str(t), hours)]
-
 
 # Global instance for easy import
 _history: Optional[PlayHistory] = None

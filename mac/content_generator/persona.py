@@ -286,11 +286,6 @@ def get_host(persona_id: str) -> dict:
     return HOSTS[persona_id]
 
 
-def get_host_voice(persona_id: str) -> str:
-    """Get the TTS voice ID for a host."""
-    return get_host(persona_id)["tts_voice"]
-
-
 def build_host_prompt(persona_id: str, show_context: dict | None = None) -> str:
     """Build a complete system prompt for a host.
 

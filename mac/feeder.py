@@ -25,14 +25,13 @@ SILENCE_FILE = PROJECT_ROOT / "output" / ".silence.wav"
 TALK_DIR = PROJECT_ROOT / "output" / "talk_segments"
 BUMPER_DIR = PROJECT_ROOT / "output" / "music_bumpers"
 NOW_PLAYING_DEFAULT = PROJECT_ROOT / "output" / "now_playing.json"
-EZSTREAM_PID_FILE = PROJECT_ROOT / "output" / ".ezstream.pid"
+CURRENT_TRACK_FILE = PROJECT_ROOT / "output" / ".current_track.txt"
 
 sys.path.insert(0, str(Path(__file__).parent))
 from schedule import load_schedule, slot_key, parse_slot_key
 SCHEDULE_PATH = PROJECT_ROOT / "config" / "schedule.yaml"
 ARCHIVE_DIR = PROJECT_ROOT / "output" / "archive"
 
-# Import play history
 try:
     from play_history import get_history
     HISTORY_ENABLED = True
@@ -192,38 +191,43 @@ def write_now_playing(info: dict):
             pass
 
 
-def record_play(filepath: Path, name: str, track_type: str, show_id: str):
-    if HISTORY_ENABLED:
-        try:
-            get_history().record_play(
-                filepath=str(filepath),
-                track_name=name,
-                vibe=track_type,
-                time_period=show_id,
-                listeners=get_listener_count(),
-            )
-        except Exception:
-            pass
+def describe_track(filepath: Path) -> tuple[str, str]:
+    """Return (display_name, track_type) for a track path."""
+    s = str(filepath)
+    if "music_bumpers" in s:
+        meta_path = filepath.with_suffix(".json")
+        name = "AI Music"
+        if meta_path.exists():
+            try:
+                m = json.loads(meta_path.read_text())
+                name = m.get("display_name", name)
+            except Exception:
+                pass
+        return name, "bumper"
+    if "talk_segments" in s:
+        return clean_name(filepath), "talk"
+    if "silence" in filepath.name.lower():
+        return "Silence", "silence"
+    return clean_name(filepath), "unknown"
 
 
-def get_ezstream_pid() -> int | None:
-    """Find the ezstream process ID."""
-    if EZSTREAM_PID_FILE.exists():
-        try:
-            pid = int(EZSTREAM_PID_FILE.read_text().strip())
-            os.kill(pid, 0)  # check if alive
-            return pid
-        except (ValueError, ProcessLookupError, PermissionError):
-            pass
-    # Fallback: find by process name
+def record_play(filepath: str, show_id: str):
+    """Record a play to history. Called when stream_metadata advances .current_track.txt."""
+    if not HISTORY_ENABLED:
+        return
     try:
-        result = subprocess.run(["pgrep", "-f", "ezstream.*radio.xml"],
-                                capture_output=True, text=True, timeout=2)
-        if result.stdout.strip():
-            return int(result.stdout.strip().split()[0])
-    except Exception:
-        pass
-    return None
+        name, track_type = describe_track(Path(filepath))
+        if track_type == "silence":
+            return
+        get_history().record_play(
+            filepath=filepath,
+            track_name=name,
+            vibe=track_type,
+            time_period=show_id,
+            listeners=get_listener_count(),
+        )
+    except Exception as e:
+        log(f"  record_play failed: {e}")
 
 
 def signal_ezstream_reload():
@@ -337,6 +341,14 @@ def run():
     last_rebuild_check = 0
     startup_sweep_done = False
 
+    # Seed last_recorded_track so a feeder restart doesn't double-record the in-flight track
+    try:
+        last_recorded_track = (
+            CURRENT_TRACK_FILE.read_text().strip() if CURRENT_TRACK_FILE.exists() else None
+        ) or None
+    except Exception:
+        last_recorded_track = None
+
     while running:
         show = get_show()
 
@@ -383,6 +395,16 @@ def run():
             track_info.update(np_info)
             # Write to disk for external consumers
             write_now_playing(np_info)
+
+            # Record play when stream_metadata.sh advances .current_track.txt
+            try:
+                if CURRENT_TRACK_FILE.exists():
+                    current = CURRENT_TRACK_FILE.read_text().strip()
+                    if current and current != last_recorded_track:
+                        record_play(current, show["show_id"])
+                        last_recorded_track = current
+            except Exception:
+                pass
 
         # Check if ezstream died and restart it (with cooldown)
         if ezstream_proc and ezstream_proc.poll() is not None:
