@@ -13,11 +13,19 @@ Priorities, in order:
 ## How the Station Works
 
 ezstream streams audio to Icecast. feeder.py builds playlists from files in
-`output/talk_segments/{show_id}/` and `output/music_bumpers/{show_id}/`.
-When new files appear, the feeder rebuilds the playlist and reloads ezstream.
+**slot folders** — `output/talk_segments/{show_id}/{YYYY-MM-DD_HHMM}/` —
+where `HHMM` is the airing's start time. Each airing gets its own folder;
+content only plays during that specific airing. When the airing ends, the
+whole slot folder is archived to `output/archive/{show_id}/{slot}/` and never
+plays again. As each track finishes, it's moved to `{slot}/aired/` so a crash
+mid-slot doesn't replay what already aired.
 
-Your job is to make sure those directories have enough content.
-You do NOT manage playback, scheduling, or streaming — that's automatic.
+Bumpers (`output/music_bumpers/{show_id}/`) are a **shared pool** — not
+slot-scoped.
+
+Your job is to make sure upcoming slots have enough content BEFORE they begin.
+You do NOT manage playback, scheduling, archiving, or aired-marking — that's
+automatic.
 
 ## Your Tasks
 
@@ -40,28 +48,39 @@ If Icecast is down:
 pkill icecast; icecast -c config/icecast.xml -b
 ```
 
-### 2. Stock Talk Segments
+### 2. Stock Upcoming Slots
 ```bash
 cd mac/content_generator && uv run python talk_generator.py --status
 ```
 
-If any show has fewer than 6 segments, generate more.
+This shows the next ~8 airings and how stocked each slot folder is.
 
 **CRITICAL: Only run ONE talk_generator at a time. NEVER run multiple in parallel.
 Each loads ~2.7 GB TTS model — parallel runs exhaust RAM (96 GB system).**
 
-**Preferred: Use `--plan` to generate structured shows** (intro, themed segments, outro).
-The planner uses the show log for continuity and weaves in listener messages:
+**Primary command — stock the next N airings reactively:**
+```bash
+cd mac/content_generator && uv run python talk_generator.py --stock-ahead 4 --min 6
+```
+This walks the next 4 airings in chronological order, topping up any slot below 6
+segments. Runs idempotently — if a slot is already at 6+, it's skipped.
+
+**Hard floor for the CURRENT slot (silence is bad):**
+If the currently-airing slot has <3 segments, stock it right now, directly:
+```bash
+cd mac/content_generator && uv run python talk_generator.py --count 3
+```
+(No `--show` or `--slot` — defaults to the current airing.)
+
+**For a planned show** (intro, themed segments, outro) for a specific upcoming airing:
 ```bash
 cd mac/content_generator && uv run python talk_generator.py --plan --show midnight_signal
+# Writes into the next un-stocked airing of midnight_signal.
+# Or target a specific slot:
+# uv run python talk_generator.py --plan --show midnight_signal --slot 2026-04-21_0000
 ```
 
-For quick restocking without planning, use `--all`:
-```bash
-cd mac/content_generator && uv run python talk_generator.py --all --min 6
-```
-
-Prioritize: current show first, then upcoming shows, then anything below minimum.
+Priority order: current slot (if below 3) → next airing → the airing after, and so on.
 
 ### 3. Stock Music Bumpers
 Only if music-gen.server is running at localhost:4009.
@@ -133,8 +152,10 @@ cd mac/content_generator && uv run python talk_generator.py --status 2>/dev/null
 
 ## Rules
 - **NEVER run generators in parallel** — always sequential, one at a time
-- Keep each show stocked with at least 6 talk segments and 5 bumpers
-- Prefer the smallest generation action that restores healthy stock
+- Keep the next 4 airings' slots stocked with at least 6 talk segments each
+- Keep the shared bumper pool at 5+ per show
+- If the current slot has fewer than 3 segments, fix that FIRST before looking ahead
+- Content is slot-scoped — it plays only during its airing, then archives. Don't try to re-use.
+- Bumpers must NOT mention specific dates/times — they're shared across airings
 - Don't restart the stream unless it's actually down
 - Skip bumper generation if music-gen.server is not running
-- You decide which show to stock and how many based on live status

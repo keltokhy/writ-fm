@@ -42,7 +42,7 @@ SCRIPTS_DIR = PROJECT_ROOT / "output" / "scripts"
 MESSAGES_FILE = Path.home() / ".writ" / "messages.json"
 
 sys.path.insert(0, str(PROJECT_ROOT / "mac"))
-from schedule import load_schedule
+from schedule import load_schedule, slot_key
 
 # Short segments for quick turnaround
 WORD_TARGET_SINGLE = (100, 200)   # One message: short personal reply
@@ -196,7 +196,7 @@ def process_messages(max_batch: int = MAX_BATCH) -> int:
 
     log(f"Found {len(unread)} unread message(s)")
 
-    # Load schedule for current show context
+    # Load schedule for current show context and current slot
     try:
         schedule = load_schedule(SCHEDULE_PATH)
         resolved = schedule.resolve()
@@ -206,6 +206,7 @@ def process_messages(max_batch: int = MAX_BATCH) -> int:
         host_id = resolved.host
         topic_focus = resolved.topic_focus
         voice = dict(resolved.voices).get("host", get_host(host_id)["tts_voice"])
+        slot = slot_key(schedule.airing_start())
     except Exception as e:
         log(f"Schedule error, using defaults: {e}")
         show_id = "midnight_signal"
@@ -214,8 +215,10 @@ def process_messages(max_batch: int = MAX_BATCH) -> int:
         host_id = "liminal_operator"
         topic_focus = "philosophy"
         voice = "am_michael"
+        slot = datetime.now().strftime("%Y-%m-%d_%H00")
 
     log(f"Current show: {show_name} (host: {host_id}, voice: {voice})")
+    log(f"Writing into slot: {slot}")
 
     # Process in batches
     total_processed = 0
@@ -249,11 +252,11 @@ def process_messages(max_batch: int = MAX_BATCH) -> int:
         # Prepare TTS
         processed = preprocess_for_tts(script)
 
-        # Output path
-        show_dir = OUTPUT_DIR / show_id
-        show_dir.mkdir(parents=True, exist_ok=True)
+        # Output path — into current slot folder (plays this airing only)
+        slot_dir = OUTPUT_DIR / show_id / slot
+        slot_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_path = show_dir / f"listener_response_{timestamp}.wav"
+        output_path = slot_dir / f"listener_response_{timestamp}.wav"
 
         log("  Rendering audio...")
         if render_single_voice(processed, output_path, voice):

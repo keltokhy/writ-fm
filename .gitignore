@@ -15,8 +15,15 @@ output/scripts/
 output/chopped_music/
 output/music/
 output/podcasts/
+output/archive/
+output/show_logs/
 output/now_playing.json
 output/generation.log
+output/.playlist.m3u
+output/.silence.wav
+output/.current_track.txt
+output/.streamer_state.json
+output/.ezstream.pid
 
 # Dev files
 command.txt

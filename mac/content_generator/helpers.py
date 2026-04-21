@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 import time
 import urllib.parse
@@ -273,7 +274,7 @@ print("SUCCESS")
 def concatenate_audio(chunk_files: list[Path], output_path: Path, gap_seconds: float = 0) -> bool:
     """Concatenate WAV files, optionally with silence gaps between them."""
     if len(chunk_files) == 1:
-        chunk_files[0].rename(output_path)
+        shutil.move(str(chunk_files[0]), str(output_path))
         return True
 
     list_file = output_path.with_suffix('.concat.txt')

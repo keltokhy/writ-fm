@@ -28,8 +28,9 @@ NOW_PLAYING_DEFAULT = PROJECT_ROOT / "output" / "now_playing.json"
 EZSTREAM_PID_FILE = PROJECT_ROOT / "output" / ".ezstream.pid"
 
 sys.path.insert(0, str(Path(__file__).parent))
-from schedule import load_schedule
+from schedule import load_schedule, slot_key, parse_slot_key
 SCHEDULE_PATH = PROJECT_ROOT / "config" / "schedule.yaml"
+ARCHIVE_DIR = PROJECT_ROOT / "output" / "archive"
 
 # Import play history
 try:
@@ -54,6 +55,11 @@ def log(msg: str):
     print(f"[{ts}] {msg}", flush=True)
 
 
+def sighup_handler(signum, frame):
+    """Ignore SIGHUP — we send it to ezstream and don't want to die from it."""
+    pass
+
+
 def signal_handler(signum, frame):
     global running
     log("Feeder shutting down...")
@@ -63,20 +69,24 @@ def signal_handler(signum, frame):
 def get_show():
     schedule = load_schedule(SCHEDULE_PATH)
     resolved = schedule.resolve()
+    airing_start = schedule.airing_start()
     return {
         "show_id": resolved.show_id,
         "show_name": resolved.name,
         "host": resolved.host,
         "topic_focus": resolved.topic_focus,
         "description": resolved.description,
+        "slot": slot_key(airing_start),
+        "airing_start": airing_start,
     }
 
 
-def get_talk_segments(show_id: str) -> list[Path]:
-    show_dir = TALK_DIR / show_id
-    if not show_dir.exists():
+def get_talk_segments(show_id: str, slot: str) -> list[Path]:
+    """Segments stocked for THIS specific airing — excludes aired/ subfolder."""
+    slot_dir = TALK_DIR / show_id / slot
+    if not slot_dir.exists():
         return []
-    segments = sorted(show_dir.glob("*.wav"), key=lambda p: p.name)
+    segments = sorted(slot_dir.glob("*.wav"), key=lambda p: p.name)
 
     # If any files have sequence prefixes (00_, 01_, ...), respect the order
     has_sequence = any(s.name[:3].rstrip("_").isdigit() for s in segments)
@@ -88,6 +98,48 @@ def get_talk_segments(show_id: str) -> list[Path]:
     rest = [s for s in segments if "listener_response" not in s.name]
     random.shuffle(rest)
     return lr + rest
+
+
+def archive_slot(show_id: str, slot: str) -> None:
+    """Move a finished slot folder to output/archive/. Atomic rename. No-op if missing."""
+    src = TALK_DIR / show_id / slot
+    if not src.exists():
+        return
+    dst_parent = ARCHIVE_DIR / show_id
+    dst_parent.mkdir(parents=True, exist_ok=True)
+    dst = dst_parent / slot
+    # If a previous archive of the same slot exists (rare: retry run), suffix it.
+    if dst.exists():
+        i = 1
+        while (dst_parent / f"{slot}.{i}").exists():
+            i += 1
+        dst = dst_parent / f"{slot}.{i}"
+    try:
+        src.rename(dst)
+        log(f"  Archived slot: {show_id}/{slot} → archive/")
+    except Exception as e:
+        log(f"  Archive failed for {show_id}/{slot}: {e}")
+
+
+def sweep_stale_slots(current_show_id: str, current_slot: str) -> None:
+    """At startup, archive any slot folder whose start-time is past and isn't current."""
+    if not TALK_DIR.exists():
+        return
+    now = datetime.now()
+    for show_dir in TALK_DIR.iterdir():
+        if not show_dir.is_dir():
+            continue
+        for slot_dir in show_dir.iterdir():
+            if not slot_dir.is_dir():
+                continue
+            try:
+                start = parse_slot_key(slot_dir.name)
+            except ValueError:
+                continue  # not a slot folder — leave it (will be handled by migration)
+            if show_dir.name == current_show_id and slot_dir.name == current_slot:
+                continue
+            if start < now:
+                archive_slot(show_dir.name, slot_dir.name)
 
 
 def get_bumpers(show_id: str) -> list[Path]:
@@ -176,35 +228,22 @@ def get_ezstream_pid() -> int | None:
 
 def signal_ezstream_reload():
     """Send SIGHUP to ezstream to reload the playlist."""
-    pid = get_ezstream_pid()
-    if pid:
+    if ezstream_proc and ezstream_proc.poll() is None:
         try:
-            os.kill(pid, signal.SIGHUP)
+            os.kill(ezstream_proc.pid, signal.SIGHUP)
         except Exception:
             pass
 
 
-def build_playlist(show_id: str) -> list[dict]:
-    """Build an ordered playlist for the current show.
+def build_playlist(show_id: str, slot: str) -> list[dict]:
+    """Build an ordered playlist for the current (show, slot).
 
-    Returns list of {path, type, name} dicts.
-    Automatically removes news_analysis segments older than 24 hours.
+    Reads only files directly in {TALK_DIR}/{show_id}/{slot}/ — the aired/
+    subfolder is ignored, so restart mid-slot doesn't replay what already aired.
+    Bumpers remain a shared pool under music_bumpers/{show_id}/.
     """
-    # Expire stale news segments
-    show_dir = TALK_DIR / show_id
-    if show_dir.exists():
-        now = time.time()
-        for f in show_dir.glob("news_analysis_*.wav"):
-            age_hours = (now - f.stat().st_mtime) / 3600
-            if age_hours > 24:
-                try:
-                    f.unlink()
-                    log(f"  Expired stale news segment: {f.name} ({age_hours:.0f}h old)")
-                except Exception:
-                    pass
-
     entries = []
-    talks = get_talk_segments(show_id)
+    talks = get_talk_segments(show_id, slot)
     bumpers = get_bumpers(show_id)
     bumper_idx = 0
 
@@ -255,6 +294,7 @@ def run():
     global running, ezstream_proc
     signal.signal(signal.SIGTERM, signal_handler)
     signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGHUP, sighup_handler)
 
     log("=== WRIT-FM Feeder ===")
     log(f"Playlist: {PLAYLIST_FILE}")
@@ -289,21 +329,36 @@ def run():
     except Exception as e:
         log(f"API server failed: {e}")
 
-    current_show_id = None
-    playlist_entries = []
-    played_idx = 0
+    current_show_id: str | None = None
+    current_slot: str | None = None
+    playlist_entries: list[dict] = []
+    last_talk_set: set[str] = set()
     last_check = 0
+    last_rebuild_check = 0
+    startup_sweep_done = False
 
     while running:
         show = get_show()
 
-        # Show changed — rebuild playlist
-        if show["show_id"] != current_show_id:
-            log(f"Show: {show['show_name']} ({show['show_id']})")
+        # Show or slot changed — archive the just-ended slot and rebuild
+        if show["show_id"] != current_show_id or show["slot"] != current_slot:
+            if current_show_id is not None and current_slot is not None:
+                archive_slot(current_show_id, current_slot)
+
+            log(f"Show: {show['show_name']} ({show['show_id']}) [slot {show['slot']}]")
             log(f"  Host: {show['host']} | Focus: {show['topic_focus']}")
             current_show_id = show["show_id"]
-            playlist_entries = build_playlist(show["show_id"])
-            played_idx = 0
+            current_slot = show["slot"]
+
+            # First time through: archive any past/stranded slot folders
+            if not startup_sweep_done:
+                sweep_stale_slots(current_show_id, current_slot)
+                startup_sweep_done = True
+
+            playlist_entries = build_playlist(current_show_id, current_slot)
+            last_talk_set = {
+                Path(e["path"]).name for e in playlist_entries if e["type"] == "talk"
+            }
             write_playlist(playlist_entries)
             signal_ezstream_reload()
             log(f"  Playlist: {len(playlist_entries)} tracks")
@@ -320,6 +375,7 @@ def run():
                 "show_id": show["show_id"],
                 "show": show["show_name"],
                 "host": show["host"],
+                "slot": show["slot"],
                 "timestamp": datetime.now().isoformat(),
                 "listeners": get_listener_count(),
             }
@@ -328,18 +384,29 @@ def run():
             # Write to disk for external consumers
             write_now_playing(np_info)
 
-        # Check if ezstream died and restart it
+        # Check if ezstream died and restart it (with cooldown)
         if ezstream_proc and ezstream_proc.poll() is not None:
-            log("  ezstream died, restarting...")
-            ezstream_proc = start_ezstream()
+            if not hasattr(run, '_last_restart') or now - run._last_restart > 30:
+                log("  ezstream died, restarting...")
+                run._last_restart = now
+                ezstream_proc = start_ezstream()
+            elif now - run._last_restart > 30:
+                pass  # still in cooldown
 
-        # Check if we need to rebuild (e.g., new content appeared)
-        if now - last_check >= 30:
-            talks_now = len(get_talk_segments(current_show_id))
-            talks_in_playlist = sum(1 for e in playlist_entries if e["type"] == "talk")
-            if talks_now > talks_in_playlist:
-                log(f"  New content detected ({talks_now} > {talks_in_playlist}), rebuilding playlist")
-                playlist_entries = build_playlist(current_show_id)
+        # Check if we need to rebuild — a file appeared in the slot that
+        # wasn't there when we last built (e.g., operator generated a new
+        # segment mid-slot, or a listener response landed).
+        # Files leaving the set (moved to aired/) must NOT trigger a rebuild.
+        if now - last_rebuild_check >= 30:
+            last_rebuild_check = now
+            current_unaired = {p.name for p in get_talk_segments(current_show_id, current_slot)}
+            new_files = current_unaired - last_talk_set
+            if new_files:
+                log(f"  New content in slot ({len(new_files)} file(s)), rebuilding playlist")
+                playlist_entries = build_playlist(current_show_id, current_slot)
+                last_talk_set = {
+                    Path(e["path"]).name for e in playlist_entries if e["type"] == "talk"
+                }
                 write_playlist(playlist_entries)
                 signal_ezstream_reload()
 
@@ -361,11 +428,16 @@ RADIO_XML = PROJECT_ROOT / "mac" / "radio.xml"
 
 
 def start_ezstream() -> subprocess.Popen:
-    """Start ezstream as a child process."""
+    """Start ezstream as a child process. Kills any stale instances first."""
+    # Kill any stale ezstream processes
+    subprocess.run(["pkill", "-f", "ezstream.*radio.xml"],
+                   capture_output=True, timeout=5)
+    time.sleep(1)
+
     log("Starting ezstream...")
     # Build initial playlist before starting
     show = get_show()
-    entries = build_playlist(show["show_id"])
+    entries = build_playlist(show["show_id"], show["slot"])
     write_playlist(entries)
 
     proc = subprocess.Popen(
@@ -373,6 +445,7 @@ def start_ezstream() -> subprocess.Popen:
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
         cwd=str(PROJECT_ROOT),
+        start_new_session=True,  # own process group so SIGHUP doesn't propagate
     )
 
     # Read stderr in a thread so it doesn't block

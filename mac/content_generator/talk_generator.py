@@ -37,7 +37,7 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -55,7 +55,7 @@ SHOW_LOG_DIR = PROJECT_ROOT / "output" / "show_logs"
 MESSAGES_FILE = Path.home() / ".writ" / "messages.json"
 
 sys.path.insert(0, str(PROJECT_ROOT / "mac"))
-from schedule import load_schedule, StationSchedule
+from schedule import load_schedule, StationSchedule, slot_key, parse_slot_key
 
 sys.path.insert(0, str(Path(__file__).parent))
 from persona import HOSTS, get_host, build_host_prompt, STATION_NAME
@@ -409,8 +409,9 @@ Example:
 def generate_planned_show(
     show_id: str,
     schedule: "StationSchedule",
+    slot: str,
 ) -> int:
-    """Generate a full planned show — intro, themed segments, outro."""
+    """Generate a full planned show — intro, themed segments, outro — into a slot folder."""
     if show_id not in schedule.shows:
         log(f"Unknown show: {show_id}")
         return 0
@@ -418,7 +419,7 @@ def generate_planned_show(
     show = schedule.shows[show_id]
 
     log(f"\n{'='*60}")
-    log(f"Planning show: {show.name}")
+    log(f"Planning show: {show.name} [slot {slot}]")
     log(f"{'='*60}")
 
     # Generate the plan
@@ -433,7 +434,7 @@ def generate_planned_show(
 
     if not plan:
         log("  Plan generation failed, falling back to random segments")
-        return generate_for_show(show_id, schedule, count=4)
+        return generate_for_show(show_id, schedule, slot=slot, count=4)
 
     log(f"  Plan: {len(plan)} segments")
     for i, seg in enumerate(plan):
@@ -473,6 +474,7 @@ def generate_planned_show(
             topic_focus=show.topic_focus,
             segment_type=seg_type,
             voices=dict(show.voices),
+            slot=slot,
             topic=topic,
             sequence=i,
             plan_note=note,
@@ -709,6 +711,7 @@ def generate_segment(
     topic_focus: str,
     segment_type: str,
     voices: dict[str, str],
+    slot: str,
     topic: str | None = None,
     sequence: int | None = None,
     plan_note: str | None = None,
@@ -756,9 +759,9 @@ def generate_segment(
     est_minutes = word_count / 130
     log(f"  Generated {word_count} words (~{est_minutes:.1f} min)")
 
-    # Prepare output
-    show_dir = OUTPUT_DIR / show_id
-    show_dir.mkdir(parents=True, exist_ok=True)
+    # Prepare output (into slot subfolder — only plays during that airing)
+    slot_dir = OUTPUT_DIR / show_id / slot
+    slot_dir.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     topic_slug = topic[:30].lower()
@@ -767,7 +770,7 @@ def generate_segment(
     topic_slug = '_'.join(filter(None, topic_slug.split('_')))
 
     seq_prefix = f"{sequence:02d}_" if sequence is not None else ""
-    output_path = show_dir / f"{seq_prefix}{segment_type}_{topic_slug}_{timestamp}.wav"
+    output_path = slot_dir / f"{seq_prefix}{segment_type}_{topic_slug}_{timestamp}.wav"
 
     # Preprocess for TTS
     processed = preprocess_for_tts(script)
@@ -820,11 +823,12 @@ def generate_segment(
 def generate_for_show(
     show_id: str,
     schedule: StationSchedule,
+    slot: str,
     count: int = 3,
     segment_type: str | None = None,
     topic: str | None = None,
 ) -> int:
-    """Generate segments for a specific show."""
+    """Generate segments for a specific show's slot."""
     if show_id not in schedule.shows:
         log(f"Unknown show: {show_id}")
         log(f"Available: {', '.join(schedule.shows.keys())}")
@@ -833,12 +837,11 @@ def generate_for_show(
     show = schedule.shows[show_id]
 
     log(f"\n{'='*60}")
-    log(f"Generating {count} segments for: {show.name}")
+    log(f"Generating {count} segments for: {show.name} [slot {slot}]")
     log(f"{'='*60}")
 
     success = 0
     for i in range(count):
-        # Pick segment type
         if segment_type:
             st = segment_type
         else:
@@ -854,6 +857,7 @@ def generate_for_show(
             topic_focus=show.topic_focus,
             segment_type=st,
             voices=dict(show.voices),
+            slot=slot,
             topic=topic,
         )
         if result:
@@ -865,44 +869,64 @@ def generate_for_show(
     return success
 
 
-def generate_for_current(schedule: StationSchedule, count: int = 3) -> int:
-    """Generate segments for the currently active show."""
-    resolved = schedule.resolve()
-    return generate_for_show(resolved.show_id, schedule, count)
+def slot_segment_count(show_id: str, slot: str) -> int:
+    """Count .wav segments currently stocked in a slot folder (excludes aired/)."""
+    slot_dir = OUTPUT_DIR / show_id / slot
+    if not slot_dir.exists():
+        return 0
+    return len(list(slot_dir.glob("*.wav")))
 
 
-def generate_all(schedule: StationSchedule, count_per_show: int = 3, min_threshold: int | None = None) -> dict[str, int]:
-    """Generate content for all shows. If min_threshold is set, skip shows above it."""
-    counts = count_segments()
-    log("=== WRIT-FM Full Talk Content Generation ===")
-    log(f"Generating {count_per_show} segments per show" + (f" (only shows below {min_threshold})" if min_threshold else ""))
+def stock_ahead(
+    schedule: StationSchedule,
+    airings_ahead: int = 4,
+    min_per_slot: int = 6,
+    count_per_generation: int = 3,
+) -> dict[str, int]:
+    """Walk the next N airings and top up any below threshold.
 
-    results = {}
-    for show_id in schedule.shows:
-        if min_threshold and counts.get(show_id, 0) >= min_threshold:
+    Current airing first, then upcoming ones, in chronological order.
+    Stops at the first slot that's already stocked — returns early so the
+    operator's run stays short.
+    """
+    airings = schedule.next_airings(count=airings_ahead)
+    log(f"=== Stock-ahead: next {len(airings)} airings, min {min_per_slot} each ===")
+
+    results: dict[str, int] = {}
+    for show_id, airing_start in airings:
+        slot = slot_key(airing_start)
+        have = slot_segment_count(show_id, slot)
+        short_by = min_per_slot - have
+        label = f"{show_id}/{slot}"
+        if short_by <= 0:
+            log(f"  [ok ] {label}: {have}/{min_per_slot}")
             continue
-        results[show_id] = generate_for_show(show_id, schedule, count_per_show)
+        to_make = min(count_per_generation, short_by)
+        log(f"  [gen] {label}: {have}/{min_per_slot} — generating {to_make}")
+        results[label] = generate_for_show(show_id, schedule, slot=slot, count=to_make)
         time.sleep(3)
 
-    log("\n=== Generation Complete ===")
-    total = 0
-    for show_id, count in results.items():
-        show = schedule.shows[show_id]
-        log(f"  {show.name}: {count}/{count_per_show}")
-        total += count
-
-    log(f"Total: {total} segments generated")
+    total = sum(results.values())
+    log(f"\n=== Stock-ahead complete: {total} new segments ===")
     return results
 
 
-def count_segments() -> dict[str, int]:
-    """Count existing segments per show."""
-    counts = {}
-    if OUTPUT_DIR.exists():
-        for show_dir in OUTPUT_DIR.iterdir():
-            if show_dir.is_dir():
-                wavs = list(show_dir.glob("*.wav"))
-                counts[show_dir.name] = len(wavs)
+def count_segments_by_slot() -> dict[str, dict[str, int]]:
+    """Map show_id → {slot_name: count} for every existing slot folder."""
+    counts: dict[str, dict[str, int]] = {}
+    if not OUTPUT_DIR.exists():
+        return counts
+    for show_dir in OUTPUT_DIR.iterdir():
+        if not show_dir.is_dir():
+            continue
+        for slot_dir in show_dir.iterdir():
+            if not slot_dir.is_dir():
+                continue
+            try:
+                parse_slot_key(slot_dir.name)
+            except ValueError:
+                continue
+            counts.setdefault(show_dir.name, {})[slot_dir.name] = len(list(slot_dir.glob("*.wav")))
     return counts
 
 
@@ -914,13 +938,16 @@ def count_segments() -> dict[str, int]:
 def main():
     parser = argparse.ArgumentParser(description="WRIT-FM Talk Segment Generator")
     parser.add_argument("--show", help="Show ID to generate for (default: current show)")
+    parser.add_argument("--slot", help="Slot key YYYY-MM-DD_HHMM (default: next un-stocked airing of --show, or current airing)")
     parser.add_argument("--type", dest="segment_type", help="Specific segment type")
     parser.add_argument("--topic", help="Specific topic")
     parser.add_argument("--count", type=int, default=3, help="Segments to generate (default: 3)")
-    parser.add_argument("--min", type=int, help="Only generate for shows below this threshold (with --all)")
-    parser.add_argument("--all", action="store_true", help="Generate for all shows")
+    parser.add_argument("--min", type=int, default=6, help="Minimum segments per slot (default: 6)")
+    parser.add_argument("--stock-ahead", type=int, default=0, metavar="N",
+                        help="Walk next N airings and top up each to --min")
+    parser.add_argument("--all", action="store_true", help="Alias for --stock-ahead 4")
     parser.add_argument("--plan", action="store_true", help="Generate a planned show (intro, themed segments, outro)")
-    parser.add_argument("--status", action="store_true", help="Show segment counts per show")
+    parser.add_argument("--status", action="store_true", help="Show segment counts per upcoming slot")
     parser.add_argument("--list-types", action="store_true", help="List segment types")
     parser.add_argument("--list-topics", help="List topics for a focus area")
 
@@ -959,32 +986,55 @@ def main():
         return 1
 
     if args.status:
-        counts = count_segments()
-        print("\n=== Talk Segment Inventory ===\n")
-        for show_id, show in schedule.shows.items():
-            c = counts.get(show_id, 0)
-            status = "OK" if c >= 6 else "LOW" if c >= 3 else "EMPTY"
-            print(f"  {show.name:30s} {c:3d} segments  [{status}]")
-        total = sum(counts.values())
-        print(f"\n  Total: {total} segments")
+        airings = schedule.next_airings(count=args.stock_ahead or 8)
+        by_slot = count_segments_by_slot()
+        print("\n=== Talk Segment Inventory (upcoming slots) ===\n")
+        for show_id, airing_start in airings:
+            slot = slot_key(airing_start)
+            c = by_slot.get(show_id, {}).get(slot, 0)
+            status = "OK" if c >= args.min else "LOW" if c >= 3 else "EMPTY"
+            show_name = schedule.shows[show_id].name
+            print(f"  {slot}  {show_name:28s} {c:3d} segments  [{status}]")
         return 0
 
-    # Generate
+    def resolve_slot(show_id: str) -> str:
+        """If --slot was given, use it. Otherwise pick the next airing of show_id
+        that hasn't met --min yet (so operator runs naturally chase empty slots)."""
+        if args.slot:
+            parse_slot_key(args.slot)  # validates
+            return args.slot
+        for candidate_show, airing_start in schedule.next_airings(count=8):
+            if candidate_show != show_id:
+                continue
+            slot = slot_key(airing_start)
+            if slot_segment_count(show_id, slot) < args.min:
+                return slot
+        # All upcoming slots for this show are stocked — fall back to current airing
+        return slot_key(schedule.airing_start())
+
     if args.plan:
         show_id = args.show or schedule.resolve().show_id
-        generate_planned_show(show_id, schedule)
-    elif args.all:
-        generate_all(schedule, args.count, min_threshold=args.min)
+        generate_planned_show(show_id, schedule, slot=resolve_slot(show_id))
+    elif args.all or args.stock_ahead:
+        n = args.stock_ahead or 4
+        stock_ahead(schedule, airings_ahead=n, min_per_slot=args.min, count_per_generation=args.count)
     elif args.show:
-        generate_for_show(args.show, schedule, args.count, args.segment_type, args.topic)
+        generate_for_show(
+            args.show, schedule,
+            slot=resolve_slot(args.show),
+            count=args.count,
+            segment_type=args.segment_type,
+            topic=args.topic,
+        )
     else:
-        if args.segment_type or args.topic:
-            resolved = schedule.resolve()
-            generate_for_show(
-                resolved.show_id, schedule, args.count, args.segment_type, args.topic
-            )
-        else:
-            generate_for_current(schedule, args.count)
+        resolved = schedule.resolve()
+        generate_for_show(
+            resolved.show_id, schedule,
+            slot=resolve_slot(resolved.show_id),
+            count=args.count,
+            segment_type=args.segment_type,
+            topic=args.topic,
+        )
 
     return 0
 

@@ -15,7 +15,7 @@ The streamer can use this to:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 import re
 from typing import Any
@@ -219,38 +219,94 @@ class StationSchedule:
                         f"Valid: {sorted(VALID_SEGMENT_TYPES)}"
                     )
 
-    def resolve(self, now: datetime | None = None) -> ResolvedShow:
-        now = now or datetime.now()
-
+    def _matching_block(self, now: datetime) -> ScheduleBlock:
         for block in self.overrides:
             if block.matches(now):
-                show = self.shows[block.show_id]
-                return ResolvedShow(
-                    show_id=show.show_id,
-                    name=show.name,
-                    description=show.description,
-                    host=show.host,
-                    topic_focus=show.topic_focus,
-                    segment_types=list(show.segment_types),
-                    bumper_style=show.bumper_style,
-                    voices=dict(show.voices),
-                )
-
+                return block
         for block in self.base:
             if block.matches(now):
-                show = self.shows[block.show_id]
-                return ResolvedShow(
-                    show_id=show.show_id,
-                    name=show.name,
-                    description=show.description,
-                    host=show.host,
-                    topic_focus=show.topic_focus,
-                    segment_types=list(show.segment_types),
-                    bumper_style=show.bumper_style,
-                    voices=dict(show.voices),
-                )
-
+                return block
         raise ScheduleError("No matching schedule block for current time (base clock may be invalid)")
+
+    def resolve(self, now: datetime | None = None) -> ResolvedShow:
+        now = now or datetime.now()
+        block = self._matching_block(now)
+        show = self.shows[block.show_id]
+        return ResolvedShow(
+            show_id=show.show_id,
+            name=show.name,
+            description=show.description,
+            host=show.host,
+            topic_focus=show.topic_focus,
+            segment_types=list(show.segment_types),
+            bumper_style=show.bumper_style,
+            voices=dict(show.voices),
+        )
+
+    def airing_start(self, now: datetime | None = None) -> datetime:
+        """Return the datetime when the currently-matching block began airing."""
+        now = now or datetime.now()
+        block = self._matching_block(now)
+        start_h, start_m = divmod(block.start_minute, 60)
+        minute = now.hour * 60 + now.minute
+
+        # Non-cross-midnight block: airing started today at start time
+        if block.end_minute > block.start_minute:
+            return now.replace(hour=start_h, minute=start_m, second=0, microsecond=0)
+
+        # Cross-midnight block
+        if minute >= block.start_minute:
+            # We're in the start-day portion
+            return now.replace(hour=start_h, minute=start_m, second=0, microsecond=0)
+        # We're past midnight, in the continuation portion
+        yesterday = now - timedelta(days=1)
+        return yesterday.replace(hour=start_h, minute=start_m, second=0, microsecond=0)
+
+    def next_airings(
+        self,
+        now: datetime | None = None,
+        count: int = 4,
+        horizon_hours: int = 48,
+    ) -> list[tuple[str, datetime]]:
+        """Return the next `count` airings as (show_id, start_datetime).
+
+        The currently-active airing is the first entry. Walks forward in
+        5-minute steps, recording each time (show_id, airing_start) changes.
+        """
+        now = now or datetime.now()
+        airings: list[tuple[str, datetime]] = []
+        last_key: tuple[str, datetime] | None = None
+        t = now
+        end = now + timedelta(hours=horizon_hours)
+        step = timedelta(minutes=5)
+        while t <= end and len(airings) < count:
+            try:
+                resolved = self.resolve(t)
+                start_dt = self.airing_start(t)
+            except ScheduleError:
+                t += step
+                continue
+            key = (resolved.show_id, start_dt)
+            if key != last_key:
+                airings.append(key)
+                last_key = key
+            t += step
+        return airings
+
+
+def slot_key(airing_start: datetime) -> str:
+    """Canonical slot folder name for an airing."""
+    return airing_start.strftime("%Y-%m-%d_%H%M")
+
+
+SLOT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}_\d{4}$")
+
+
+def parse_slot_key(key: str) -> datetime:
+    """Inverse of slot_key; raises ValueError if malformed."""
+    if not SLOT_RE.match(key):
+        raise ValueError(f"Not a slot key: {key!r}")
+    return datetime.strptime(key, "%Y-%m-%d_%H%M")
 
 
 def load_schedule(path: Path) -> StationSchedule:
