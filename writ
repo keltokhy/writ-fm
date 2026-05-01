@@ -24,12 +24,6 @@ MUSIC_GEN_DIR="${MUSIC_GEN_DIR:-}"
     MUSIC_GEN_DIR="$(cd "$PROJECT_ROOT/../music-gen.server" && pwd)"
 
 SESSION="writ"
-OPERATOR_LAUNCHD_LABEL="local.writ.operator"
-OPERATOR_LAUNCHD_DOMAIN="gui/$(id -u)"
-OPERATOR_LAUNCHD_SOURCE="$PROJECT_ROOT/mac/launchd/$OPERATOR_LAUNCHD_LABEL.plist"
-OPERATOR_LAUNCHD_PLIST="$HOME/Library/LaunchAgents/$OPERATOR_LAUNCHD_LABEL.plist"
-OPERATOR_LAUNCHD_LOG="$HOME/Library/Logs/writ/operator_launchd.log"
-OPERATOR_LAUNCHD_ERR_LOG="$HOME/Library/Logs/writ/operator_launchd.err.log"
 
 CORE_COMPONENTS=(icecast stream tunnel)
 CONTENT_COMPONENTS=(music-gen operator listener)
@@ -83,55 +77,6 @@ window_exists() {
 
 send_cmd() { local w="$1"; shift; tmux send-keys -t "$SESSION:$w" "$*" Enter; }
 
-# ── launchd helpers ──────────────────────────────────────────
-
-operator_launchd_loaded() {
-    launchctl print "$OPERATOR_LAUNCHD_DOMAIN/$OPERATOR_LAUNCHD_LABEL" >/dev/null 2>&1
-}
-
-operator_launchd_running() {
-    launchctl print "$OPERATOR_LAUNCHD_DOMAIN/$OPERATOR_LAUNCHD_LABEL" 2>/dev/null | grep -q "state = running"
-}
-
-install_operator_launchagent() {
-    mkdir -p "$HOME/Library/LaunchAgents" "$HOME/Library/Logs/writ" "$PROJECT_ROOT/output"
-    install -m 0644 "$OPERATOR_LAUNCHD_SOURCE" "$OPERATOR_LAUNCHD_PLIST"
-    plutil -lint "$OPERATOR_LAUNCHD_PLIST" >/dev/null
-}
-
-start_operator_launchd() {
-    is_healthy music-gen || warn "music-gen is down; operator can still manage talk/messages"
-    install_operator_launchagent
-
-    if operator_launchd_loaded; then
-        launchctl kickstart -k "$OPERATOR_LAUNCHD_DOMAIN/$OPERATOR_LAUNCHD_LABEL" >/dev/null
-    else
-        launchctl bootstrap "$OPERATOR_LAUNCHD_DOMAIN" "$OPERATOR_LAUNCHD_PLIST"
-    fi
-
-    printf "  Starting operator "
-    if wait_for_healthy operator; then
-        ok "operator UP (launchd)"
-    else
-        warn "operator launchd job loaded (may still be starting)"
-    fi
-}
-
-stop_operator_launchd() {
-    if operator_launchd_loaded; then
-        launchctl bootout "$OPERATOR_LAUNCHD_DOMAIN/$OPERATOR_LAUNCHD_LABEL" >/dev/null 2>&1 || \
-            launchctl bootout "$OPERATOR_LAUNCHD_DOMAIN" "$OPERATOR_LAUNCHD_PLIST" >/dev/null 2>&1 || true
-    fi
-
-    window_exists operator && { tmux send-keys -t "$SESSION:operator" C-c 2>/dev/null || true; sleep 2; }
-    pkill -f "operator_daemon.sh" 2>/dev/null || true
-    pkill -f "./run_operator.sh" 2>/dev/null || true
-    pkill -f "timeout .* claude -p # WRIT-FM Operator Session" 2>/dev/null || true
-    window_exists operator && { tmux kill-window -t "$SESSION:operator" 2>/dev/null || true; }
-
-    ok "operator stopped"
-}
-
 # ── health checks ────────────────────────────────────────────
 
 check_port()    { curl -sf --max-time 3 "$1" >/dev/null 2>&1; }
@@ -139,10 +84,6 @@ check_process() { pgrep -f "$1" >/dev/null 2>&1; }
 
 is_healthy() {
     local url="${COMP_HEALTH_URL[$1]}" pat="${COMP_PGREP[$1]}"
-    if [[ "$1" == "operator" ]]; then
-        operator_launchd_running || check_process "$pat"
-        return
-    fi
     if [[ -n "$url" ]]; then check_port "$url"; else check_process "$pat"; fi
 }
 
@@ -188,12 +129,6 @@ kill_port() {
 start_one() {
     local comp="$1"
 
-    if [[ "$comp" == "operator" ]]; then
-        if is_healthy operator && operator_launchd_loaded; then ok "operator already running (launchd)"; return 0; fi
-        start_operator_launchd
-        return 0
-    fi
-
     if is_healthy "$comp"; then ok "$comp already running"; return 0; fi
 
     # dependency checks
@@ -220,11 +155,6 @@ start_one() {
 
 stop_one() {
     local comp="$1" pat="${COMP_PGREP[$1]}" port="${COMP_PORT[$1]}"
-
-    if [[ "$comp" == "operator" ]]; then
-        stop_operator_launchd
-        return 0
-    fi
 
     if ! window_exists "$comp" && ! check_process "$pat"; then
         # Still check for orphaned port holders
@@ -300,7 +230,6 @@ cmd_status() {
 
         if is_healthy "$comp"; then
             st="UP"; sc="$GREEN"; win="$SESSION:$comp"
-            [[ "$comp" == "operator" && operator_launchd_loaded ]] && win="launchd"
             for c in "${CORE_COMPONENTS[@]}"; do [[ "$c" == "$comp" ]] && core_up=$((core_up+1)); done
             for c in "${CONTENT_COMPONENTS[@]}"; do [[ "$c" == "$comp" ]] && content_up=$((content_up+1)); done
         else
@@ -317,16 +246,6 @@ cmd_status() {
 cmd_logs() {
     local comp="${1:-}"; [[ -z "$comp" ]] && { err "Usage: writ logs <component> [-f]"; exit 1; }
     validate_component "$comp"
-
-    if [[ "$comp" == "operator" && -f "$OPERATOR_LAUNCHD_LOG" ]]; then
-        if [[ "${2:-}" == "-f" || "${2:-}" == "--follow" ]]; then
-            exec tail -f "$OPERATOR_LAUNCHD_LOG" "$OPERATOR_LAUNCHD_ERR_LOG"
-        else
-            tail -n 100 "$OPERATOR_LAUNCHD_LOG"
-            [[ -s "$OPERATOR_LAUNCHD_ERR_LOG" ]] && { echo ""; tail -n 40 "$OPERATOR_LAUNCHD_ERR_LOG"; }
-        fi
-        return 0
-    fi
 
     window_exists "$comp" || { err "$comp has no active window"; exit 1; }
 
