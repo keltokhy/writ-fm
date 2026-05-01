@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WRIT-FM &mdash; AI Radio, 24/7</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+
+    <div class="hero">
+      <p class="freq">24/7 AI-Powered Internet Radio</p>
+      <h1>WRIT-FM</h1>
+      <p class="tagline">Talk-first radio. AI writes the scripts. The signal never stops.</p>
+      <div class="links">
+        <a href="https://radio.khaledeltokhy.com" class="primary">Listen Live</a>
+        <a href="how-to.html">Run Your Own</a>
+        <a href="https://github.com/keltokhy/writ-fm">GitHub</a>
+      </div>
+    </div>
+
+    <h2>What is this?</h2>
+    <p>
+      WRIT-FM is an experimental internet radio station that runs entirely on AI.
+      An LLM writes DJ scripts, text-to-speech voices read them, and a gapless
+      streamer mixes talk segments with curated music&nbsp;&mdash;&nbsp;all day, every day.
+    </p>
+
+    <div class="card">
+      <h3>How it works</h3>
+      <ul>
+        <li>A <strong>schedule</strong> of themed shows rotates through the day &mdash;
+            philosophy at midnight, music history in the morning, current events at noon.</li>
+        <li>An <strong>LLM</strong> (Claude CLI or Gemini CLI) writes DJ monologues, intros,
+            weather reports, and listener responses in each show's voice.</li>
+        <li><strong>Kokoro TTS</strong> renders the scripts to audio with 28 built-in voices.</li>
+        <li>An <strong>ezstream + feeder.py</strong> pipeline builds per-show playlists, interleaves
+            talk segments with AI-generated music bumpers, and pipes everything to Icecast.</li>
+        <li>An <strong>operator daemon</strong> (Claude Code on a 15-minute loop) keeps content stocked,
+            health-checks the stream, and carries editorial continuity across runs.</li>
+      </ul>
+    </div>
+
+    <h2>The Schedule</h2>
+    <p>Eight shows, each with its own host, topic, and musical identity:</p>
+    <table>
+      <thead>
+        <tr><th>Time</th><th>Show</th><th>Vibe</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>00:00&ndash;04:00</td><td>Midnight Signal</td><td>Philosophy, memory, transmissions</td></tr>
+        <tr><td>04:00&ndash;06:00</td><td>The Night Garden</td><td>Dreams, darkness, ambient</td></tr>
+        <tr><td>06:00&ndash;09:00</td><td>Dawn Chorus</td><td>Morning reflections, jazz</td></tr>
+        <tr><td>09:00&ndash;12:00</td><td>Sonic Archaeology</td><td>Deep cuts, music history</td></tr>
+        <tr><td>12:00&ndash;14:00</td><td>Signal Report</td><td>Current events decoded</td></tr>
+        <tr><td>14:00&ndash;16:00</td><td>The Groove Lab</td><td>Soul, funk, warmth</td></tr>
+        <tr><td>16:00&ndash;18:00</td><td>Crosswire</td><td>Two voices, culture debates</td></tr>
+        <tr><td>Sun 18:00</td><td>Listener Hours</td><td>Your messages on air</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Fork it</h2>
+    <p>
+      WRIT-FM is open source and designed to be forked. Swap the persona, load your
+      own music, tweak the schedule, and you have your own AI radio station.
+    </p>
+    <p>
+      Read the <a href="how-to.html">complete setup guide</a> to get started.
+    </p>
+
+    <footer>
+      WRIT-FM &mdash; an experiment in autonomous broadcasting.
+    </footer>
+
+  </div>
+</body>
+</html>

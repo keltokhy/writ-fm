@@ -1,0 +1,277 @@
+/* WRIT-FM — late-night radio aesthetic */
+
+:root {
+  --bg: #0a0a0f;
+  --bg-card: #12121a;
+  --text: #c8c8d0;
+  --text-muted: #6a6a7a;
+  --accent: #e8a04a;
+  --accent-dim: #b87830;
+  --link: #7ab0d4;
+  --link-hover: #a0d0f0;
+  --border: #1e1e2a;
+  --code-bg: #16161e;
+  --font: "Georgia", "Times New Roman", serif;
+  --font-mono: "SF Mono", "Fira Code", "Consolas", monospace;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 17px;
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  line-height: 1.7;
+  min-height: 100vh;
+}
+
+/* Layout */
+
+.container {
+  max-width: 700px;
+  margin: 0 auto;
+  padding: 3rem 1.5rem;
+}
+
+/* Typography */
+
+h1, h2, h3 {
+  color: #e0e0e8;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+}
+
+h1 {
+  font-size: 2.4rem;
+  margin-bottom: 0.3rem;
+}
+
+h2 {
+  font-size: 1.5rem;
+  margin-top: 3rem;
+  margin-bottom: 1rem;
+  padding-bottom: 0.3rem;
+  border-bottom: 1px solid var(--border);
+}
+
+h3 {
+  font-size: 1.15rem;
+  margin-top: 2rem;
+  margin-bottom: 0.6rem;
+  color: var(--accent);
+}
+
+p {
+  margin-bottom: 1rem;
+}
+
+a {
+  color: var(--link);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.2s;
+}
+
+a:hover {
+  color: var(--link-hover);
+  border-bottom-color: var(--link-hover);
+}
+
+/* Header / hero */
+
+.hero {
+  text-align: center;
+  padding: 4rem 0 3rem;
+}
+
+.hero .freq {
+  font-size: 0.9rem;
+  color: var(--accent);
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  margin-bottom: 0.5rem;
+}
+
+.hero h1 {
+  margin-bottom: 0.5rem;
+}
+
+.hero .tagline {
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: 1.1rem;
+  margin-bottom: 2rem;
+}
+
+.hero .links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  justify-content: center;
+}
+
+.hero .links a {
+  display: inline-block;
+  padding: 0.6rem 1.4rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 0.9rem;
+  transition: border-color 0.2s, color 0.2s;
+}
+
+.hero .links a:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.hero .links a.primary {
+  background: var(--accent-dim);
+  border-color: var(--accent-dim);
+  color: #fff;
+}
+
+.hero .links a.primary:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+/* Cards */
+
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+/* Code blocks */
+
+pre, code {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+}
+
+code {
+  background: var(--code-bg);
+  padding: 0.15em 0.4em;
+  border-radius: 3px;
+}
+
+pre {
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1rem 1.2rem;
+  overflow-x: auto;
+  margin-bottom: 1.5rem;
+  line-height: 1.5;
+}
+
+pre code {
+  background: none;
+  padding: 0;
+}
+
+/* Lists */
+
+ul, ol {
+  margin-bottom: 1rem;
+  padding-left: 1.5rem;
+}
+
+li {
+  margin-bottom: 0.4rem;
+}
+
+li code {
+  font-size: 0.82rem;
+}
+
+/* Table */
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1.5rem;
+  font-size: 0.92rem;
+}
+
+th, td {
+  text-align: left;
+  padding: 0.5rem 0.8rem;
+  border-bottom: 1px solid var(--border);
+}
+
+th {
+  color: var(--accent);
+  font-weight: 400;
+  font-size: 0.85rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+/* Navigation */
+
+nav {
+  display: flex;
+  gap: 1.5rem;
+  padding: 1rem 0;
+  font-size: 0.9rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 2rem;
+}
+
+nav a {
+  color: var(--text-muted);
+}
+
+nav a:hover, nav a.active {
+  color: var(--accent);
+}
+
+/* Footer */
+
+footer {
+  margin-top: 4rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+/* Step numbers */
+
+.step {
+  display: inline-block;
+  width: 1.8rem;
+  height: 1.8rem;
+  line-height: 1.8rem;
+  text-align: center;
+  background: var(--accent-dim);
+  color: #fff;
+  border-radius: 50%;
+  font-size: 0.85rem;
+  margin-right: 0.5rem;
+  font-family: var(--font-mono);
+}
+
+/* Responsive */
+
+@media (max-width: 600px) {
+  html { font-size: 15px; }
+  .hero { padding: 2rem 0 1.5rem; }
+  h1 { font-size: 2rem; }
+  .container { padding: 2rem 1rem; }
+}

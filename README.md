@@ -164,13 +164,21 @@ The operator daemon runs Claude Code on a 15-minute loop to:
 2. Stock talk segments for current and upcoming shows (minimum 6 per show)
 3. Stock AI music bumpers when music-gen.server is available (minimum 5 per show)
 4. Process listener messages into on-air responses
-5. Detect drift between config, docs, and runtime state
+5. Carry editorial continuity across runs via the station ledger and intent cards
 
 ```bash
-./writ start operator   # Start via writ CLI
+./writ start operator   # Start via writ CLI (tmux-managed)
 ./run_operator.sh       # Run once manually
 bash mac/operator_daemon.sh  # Run as a persistent loop
 ```
+
+Each run reads an operator brief (`mac/content_generator/context.py
+--operator-brief`) summarizing recent topics, active threads, and unread
+listener messages. The operator picks a run mode — `maintenance`,
+`responsive`, `continuity`, `special`, or `quiet` — and may write intent
+cards in `output/operator_intents/` to guide specific segments. Editorial
+decisions are appended to the station ledger (`~/.writ/station_ledger.jsonl`)
+so future runs can carry threads forward instead of repeating themselves.
 
 The listener daemon polls for new messages every 30 seconds and generates spoken responses:
 ```bash
@@ -191,11 +199,10 @@ The listener daemon polls for new messages every 30 seconds and generates spoken
 
 ```
 ├── writ                        # Station CLI (start/stop/status/logs/generate)
-├── run_operator.sh             # Single operator run (Claude Code)
+├── run_operator.sh             # Single operator run (Claude Code, with lock + timeout)
 ├── mac/
 │   ├── feeder.py               # Playlist feeder (manages ezstream + API)
 │   ├── radio.xml               # ezstream config (Icecast, Ogg encoding)
-│   ├── next_track.py           # Track selector (schedule-aware)
 │   ├── api_server.py           # Now-playing API (daemon thread in feeder)
 │   ├── schedule.py             # Schedule parser and resolver
 │   ├── play_history.py         # Track history and dedup
@@ -206,9 +213,11 @@ The listener daemon polls for new messages every 30 seconds and generates spoken
 │   ├── start_music_gen.sh      # Start music-gen + daemons in tmux
 │   ├── kokoro/                 # Kokoro TTS wrapper
 │   ├── content_generator/
-│   │   ├── talk_generator.py              # Talk segment generator
+│   │   ├── talk_generator.py              # Talk segment generator (with --intent support)
 │   │   ├── music_bumper_generator.py      # AI music bumper generator
 │   │   ├── listener_response_generator.py # Listener message → audio
+│   │   ├── context.py                     # Operator brief and intent card templates
+│   │   ├── ledger.py                      # Append-only editorial memory
 │   │   ├── music_pools_expanded.py        # Music generation prompts
 │   │   ├── persona.py                     # Host definitions and station identity
 │   │   └── helpers.py                     # Shared utilities

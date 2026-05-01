@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Run Your Own AI Radio Station &mdash; WRIT-FM</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+
+    <nav>
+      <a href="index.html">WRIT-FM</a>
+      <a href="how-to.html" class="active">How-To Guide</a>
+      <a href="https://github.com/keltokhy/writ-fm">GitHub</a>
+    </nav>
+
+    <h1>Run Your Own AI Radio Station</h1>
+    <p>A complete walkthrough for setting up a 24/7 AI-powered internet radio station using the WRIT-FM codebase.</p>
+
+    <!-- ───────────────────────── 1. Prerequisites ───────────────────────── -->
+
+    <h2><span class="step">1</span> Prerequisites</h2>
+
+    <p>You'll need these installed before starting:</p>
+
+    <table>
+      <thead><tr><th>Tool</th><th>What for</th><th>Install</th></tr></thead>
+      <tbody>
+        <tr><td>Python 3.11+</td><td>Everything</td><td><code>brew install python</code> / your distro</td></tr>
+        <tr><td><a href="https://docs.astral.sh/uv/">uv</a></td><td>Python package manager</td><td><code>curl -LsSf https://astral.sh/uv/install.sh | sh</code></td></tr>
+        <tr><td>ffmpeg</td><td>Audio encoding</td><td><code>brew install ffmpeg</code> / <code>apt install ffmpeg</code></td></tr>
+        <tr><td><a href="https://icecast.org">Icecast 2</a></td><td>Streaming server</td><td><code>brew install icecast</code> / <code>apt install icecast2</code></td></tr>
+        <tr><td>tmux</td><td>Running daemons</td><td><code>brew install tmux</code> / <code>apt install tmux</code></td></tr>
+        <tr><td>An LLM CLI</td><td>Writing DJ scripts</td><td><a href="https://docs.anthropic.com/en/docs/claude-code">Claude Code</a> or <a href="https://github.com/google-gemini/gemini-cli">Gemini CLI</a></td></tr>
+      </tbody>
+    </table>
+
+    <p><strong>Optional:</strong> <a href="https://github.com/kortexa-ai/music-gen.server">music-gen.server</a> for AI-generated music bumpers (requires a machine with GPU or Apple Silicon).</p>
+
+    <!-- ───────────────────────── 2. Clone & Setup ───────────────────────── -->
+
+    <h2><span class="step">2</span> Clone &amp; Setup</h2>
+
+<pre><code># Clone the repo
+git clone https://github.com/keltokhy/writ-fm.git
+cd writ-fm
+
+# Install Python dependencies
+uv sync
+
+# Copy example configs
+cp config/icecast.xml.example config/icecast.xml
+cp mac/config.yaml.example mac/config.yaml
+
+# Make the writ CLI executable
+chmod +x writ run_operator.sh</code></pre>
+
+    <!-- ───────────────────────── 3. Choose TTS ───────────────────────── -->
+
+    <h2><span class="step">3</span> Set Up TTS</h2>
+
+    <p>WRIT-FM uses <a href="https://github.com/hexgrad/kokoro">Kokoro TTS</a> &mdash;
+    fast, CPU-friendly, with 28 built-in voices (American &amp; British). Each show
+    in <code>config/schedule.yaml</code> is assigned a voice ID; hosts have
+    distinctive deliveries that survive long-form segments.</p>
+
+    <div class="card">
+      <h3>Install Kokoro</h3>
+      <ul>
+        <li>~200 MB model download (first run)</li>
+        <li>CPU-only, runs on anything</li>
+        <li>Apple Silicon recommended for parallel generation</li>
+      </ul>
+<pre><code>cd mac/kokoro
+uv venv &amp;&amp; uv pip install kokoro soundfile</code></pre>
+    </div>
+
+    <!-- ───────────────────────── 4. Configure ───────────────────────── -->
+
+    <h2><span class="step">4</span> Configure</h2>
+
+    <h3>config/icecast.xml</h3>
+    <p>Set your passwords. The <code>source-password</code> is what the streamer uses to connect:</p>
+<pre><code>&lt;authentication&gt;
+    &lt;source-password&gt;your_source_password&lt;/source-password&gt;
+    &lt;admin-user&gt;admin&lt;/admin-user&gt;
+    &lt;admin-password&gt;your_admin_password&lt;/admin-password&gt;
+&lt;/authentication&gt;</code></pre>
+
+    <h3>mac/config.yaml</h3>
+    <p>Main station configuration. Key settings:</p>
+    <ul>
+      <li><code>icecast_password</code> &mdash; must match <code>source-password</code> above</li>
+      <li><code>icecast_host</code>, <code>icecast_port</code>, <code>icecast_mount</code> &mdash; defaults are fine for localhost</li>
+    </ul>
+
+    <h3>config/schedule.yaml</h3>
+    <p>Defines your shows, hosts, voices, and the daily/weekly schedule. Each show has:</p>
+    <ul>
+      <li><code>name</code>, <code>description</code> &mdash; identity for the LLM prompt</li>
+      <li><code>host</code> &mdash; persona name from <code>persona.py</code></li>
+      <li><code>topic_focus</code> &mdash; what the AI talks about</li>
+      <li><code>bumper_style</code> &mdash; music genre for AI-generated bumpers</li>
+      <li><code>voices</code> &mdash; TTS voice IDs for host and optional guest</li>
+    </ul>
+
+    <!-- ───────────────────────── 5. Music Bumpers (Optional) ───────────────────────── -->
+
+    <h2><span class="step">5</span> Music Bumpers (Optional)</h2>
+
+    <p>WRIT-FM is talk-first &mdash; long-form talk segments dominate, with short
+    music bumpers (1&ndash;2 tracks) between them. Bumpers are AI-generated via
+    <a href="https://github.com/kortexa-ai/music-gen.server">music-gen.server</a>
+    (ACE-Step model). Each show has a <code>bumper_style</code> in
+    <code>config/schedule.yaml</code> &mdash; ambient, jazz, downtempo, soul, indie.</p>
+
+    <p>To run the music-gen server alongside WRIT-FM:</p>
+<pre><code># Clone music-gen.server next to writ-fm
+cd ..
+git clone https://github.com/kortexa-ai/music-gen.server
+cd writ-fm
+
+# Start it via the writ helper (uses tmux)
+bash mac/start_music_gen.sh server</code></pre>
+
+    <p>Skip this step if you want to start without music &mdash; the operator
+    handles a missing music-gen gracefully (talk segments still generate).</p>
+
+    <!-- ───────────────────────── 6. Generate Initial Content ───────────────────────── -->
+
+    <h2><span class="step">6</span> Generate Initial Content</h2>
+
+    <p>Before your first broadcast, stock at least the current and next slot
+    with talk segments. The <code>writ</code> CLI wraps the generators:</p>
+
+<pre><code># Stock 3 talk segments for the currently-airing slot (~30 min content)
+./writ generate talk
+
+# Stock segments for a specific show
+./writ generate talk --show midnight_signal
+
+# Stock music bumpers (requires music-gen.server)
+./writ generate music
+
+# See what's stocked across upcoming slots
+./writ generate status</code></pre>
+
+    <p>Or call the generators directly for finer control:</p>
+
+<pre><code># Stock the next 4 airings to a minimum of 6 segments each
+uv run python mac/content_generator/talk_generator.py --stock-ahead 4 --min 6
+
+# Stock all bumper pools to 5+
+uv run python mac/content_generator/music_bumper_generator.py --all --min 5</code></pre>
+
+    <p>Talk segments land in <code>output/talk_segments/{show_id}/{slot}/</code> &mdash;
+    each airing gets its own slot folder, and content there only plays during that
+    specific airing before being archived.</p>
+
+    <!-- ───────────────────────── 7. Start Streaming ───────────────────────── -->
+
+    <h2><span class="step">7</span> Start Streaming</h2>
+
+    <p>The <code>writ</code> CLI manages all components via tmux:</p>
+
+<pre><code>./writ start          # Start everything (icecast, stream, tunnel, music-gen, operator, listener)
+./writ status         # Health check all components
+./writ stop           # Stop everything</code></pre>
+
+    <p>Or start components individually, in order:</p>
+
+<pre><code>./writ start icecast  # Icecast streaming server (:8000)
+./writ start stream   # ezstream + feeder.py + API (:8001)
+./writ start tunnel   # cloudflared tunnel (optional)</code></pre>
+
+    <p>Listen at <code>http://localhost:8000/stream</code>. The now-playing API
+    runs at <code>http://localhost:8001/now-playing</code> as a daemon thread
+    inside the streamer.</p>
+
+    <!-- ───────────────────────── 8. Run 24/7 ───────────────────────── -->
+
+    <h2><span class="step">8</span> Run 24/7</h2>
+
+    <p>Two daemons keep the station alive without manual intervention:</p>
+
+    <h3>Operator daemon (content + health)</h3>
+    <p>Runs Claude Code on a 15-minute loop. Each pass: health-checks the stream,
+    stocks talk and music for upcoming slots, processes listener messages, and
+    leaves an editorial note in the station ledger so future runs can pick up
+    threads instead of repeating themselves.</p>
+
+<pre><code>./writ start operator             # Start the daemon (tmux-managed)
+./writ logs operator -f           # Follow live
+./writ attach operator            # Attach to the tmux window</code></pre>
+
+    <h3>Listener daemon (message responses)</h3>
+    <p>Polls <code>~/.writ/messages.json</code> for unread listener messages and
+    generates on-air responses through the appropriate host's voice.</p>
+
+<pre><code>./writ start listener</code></pre>
+
+    <h3>Run a single operator pass manually</h3>
+<pre><code>./run_operator.sh                 # One pass, with lock + 30-min timeout</code></pre>
+
+    <p><strong>Note on cron and launchd (macOS):</strong> If your repo lives on an
+    external <code>/Volumes/</code> drive, both cron and user LaunchAgents will
+    fail with &ldquo;Operation not permitted&rdquo; (TCC blocks daemon-spawned
+    <code>bash</code> from accessing external volumes without Full Disk Access).
+    Run the operator from a tmux session inherited from your Terminal (the
+    default <code>./writ start operator</code> path) or move the project to
+    <code>~/</code>. Linux users can use cron freely.</p>
+
+    <!-- ───────────────────────── 9. Make it Public ───────────────────────── -->
+
+    <h2><span class="step">9</span> Make it Public</h2>
+
+    <p>Your stream is at <code>localhost:8000/stream</code>. To let the world listen:</p>
+
+    <h3>Option A: Cloudflare Tunnel (simplest)</h3>
+<pre><code># Install cloudflared
+brew install cloudflared  # or apt/snap
+
+# Authenticate
+cloudflared tunnel login
+
+# Create a tunnel
+cloudflared tunnel create writ-radio
+
+# Route your domain
+cloudflared tunnel route dns writ-radio radio.yourdomain.com
+
+# Run it
+cloudflared tunnel run writ-radio</code></pre>
+
+    <h3>Option B: Reverse proxy (nginx)</h3>
+<pre><code>server {
+    listen 443 ssl;
+    server_name radio.yourdomain.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_buffering off;  # important for streaming
+    }
+}</code></pre>
+
+    <!-- ───────────────────────── 10. Customize ───────────────────────── -->
+
+    <h2><span class="step">10</span> Customize</h2>
+
+    <h3>Change the station persona</h3>
+    <p>Edit <code>mac/content_generator/persona.py</code> to redefine your station's identity &mdash; name, voice, speaking style, philosophical leanings. This is the system prompt the LLM uses for all DJ scripts.</p>
+
+    <h3>Modify the schedule</h3>
+    <p>Edit <code>config/schedule.yaml</code> to add, remove, or rearrange shows. You can set different voices, topic focuses, and bumper styles per show. The <code>overrides</code> section handles weekly specials.</p>
+
+    <h3>Add or change voices</h3>
+    <p>Kokoro ships with 28 voices &mdash; check <code>mac/kokoro/tts.py</code> for the full list. Assign them per-show in <code>schedule.yaml</code> under the <code>voices</code> key.</p>
+    <p>Each show in <code>config/schedule.yaml</code> can also assign a different
+    voice for a guest host (used by panel-format shows like Crosswire).</p>
+
+    <h3>Environment variables</h3>
+    <table>
+      <thead><tr><th>Variable</th><th>Purpose</th><th>Default</th></tr></thead>
+      <tbody>
+        <tr><td><code>ICECAST_HOST</code></td><td>Icecast hostname</td><td><code>localhost</code></td></tr>
+        <tr><td><code>ICECAST_PORT</code></td><td>Icecast port</td><td><code>8000</code></td></tr>
+        <tr><td><code>ICECAST_MOUNT</code></td><td>Icecast mountpoint</td><td><code>/stream</code></td></tr>
+        <tr><td><code>ICECAST_USER</code>, <code>ICECAST_PASS</code></td><td>Source credentials</td><td>from config</td></tr>
+        <tr><td><code>MUSIC_GEN_URL</code></td><td>music-gen.server URL</td><td><code>http://localhost:4009</code></td></tr>
+        <tr><td><code>MUSIC_GEN_DIR</code></td><td>Path to music-gen.server</td><td>sibling directory</td></tr>
+        <tr><td><code>WRIT_SEGMENTS_DIR</code></td><td>Override talk_segments root</td><td><code>output/talk_segments</code></td></tr>
+        <tr><td><code>WRIT_OPERATOR_INTERVAL_SECONDS</code></td><td>Operator daemon loop interval</td><td><code>900</code></td></tr>
+        <tr><td><code>WRIT_OPERATOR_TIMEOUT_SECONDS</code></td><td>Hard timeout per operator pass</td><td><code>1800</code></td></tr>
+      </tbody>
+    </table>
+
+    <footer>
+      <a href="index.html">WRIT-FM</a> &mdash; an experiment in autonomous broadcasting.
+    </footer>
+
+  </div>
+</body>
+</html>
