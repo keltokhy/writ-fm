@@ -43,20 +43,9 @@ start_server() {
 }
 
 start_operator() {
-    # Kill any existing operator daemon
-    pkill -f "operator_daemon.sh" 2>/dev/null || true
-    sleep 1
-
-    # Create or reuse a window for the operator
-    if ! tmux list-windows -t "$SESSION" -F "#{window_name}" 2>/dev/null | grep -qx "operator"; then
-        tmux new-window -t "$SESSION" -n "operator"
-    fi
-
-    tmux send-keys -t "$SESSION:operator" \
-        "cd '$RADIO_DIR' && unset CLAUDECODE && bash mac/operator_daemon.sh" Enter
-
-    echo "Operator daemon started in tmux: $SESSION:operator"
-    echo "  Logs: tmux attach -t $SESSION:operator"
+    "$RADIO_DIR/writ" start operator
+    echo "Operator daemon managed by launchd: local.writ.operator"
+    echo "  Logs: $HOME/Library/Logs/writ/operator_launchd.log"
 }
 
 start_listener() {
