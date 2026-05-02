@@ -16,7 +16,7 @@ while true; do
     (
         cd "$RADIO_DIR"
         ./run_operator.sh
-    )
+    ) || echo "[operator-daemon $(ts)] operator pass exited with status $?; continuing"
     echo "[operator-daemon $(ts)] Sleeping ${INTERVAL_SECONDS}s..."
     sleep "$INTERVAL_SECONDS"
 done
