@@ -9,7 +9,7 @@ Priorities, in order:
 2. Keep the current show and next few shows stocked with talk segments.
 3. Keep AI music bumpers stocked when music-gen.server is available.
 4. Process listener messages into on-air responses.
-5. Leave behind useful station memory for future runs.
+5. Leave behind useful station memory for future runs (ledger + diary).
 6. Do the minimum necessary work each run.
 
 ## How the Station Works
@@ -154,6 +154,34 @@ echo "- Show: $(uv run python mac/schedule.py now 2>/dev/null | head -1)" >> "$L
 echo "- Stream: $(curl -sf http://localhost:8000/status-json.xsl | python3 -c "import sys,json; s=json.load(sys.stdin).get('icestats',{}).get('source',{}); print('UP,', s.get('listeners',0), 'listeners') if s else print('DOWN')" 2>/dev/null)" >> "$LOGFILE"
 cd mac/content_generator && uv run python talk_generator.py --status 2>/dev/null >> "$LOGFILE"
 ```
+
+### 6. Leave a Diary Note
+Always close the run with a short diary entry. Recent entries appear in your
+next operator brief — this is how you talk to your future self across runs.
+
+```bash
+cd mac/content_generator && uv run python ledger.py add-diary --mode maintenance --text "Stocked Sonic Archaeology and Groove Lab. Night Garden 22:00 still empty — next pass will catch it. Station feels evenly paced."
+```
+
+For multi-line entries, pipe via stdin:
+```bash
+cd mac/content_generator && uv run python ledger.py add-diary --mode continuity <<'NOTE'
+Big run. Cleared the backlog and got the Donna Summer thread queued for Crosswire.
+The night ahead is empty in a good way — nothing pending, just space to listen.
+NOTE
+```
+
+Diary entries are free-form (1–4 sentences). Worth noting, in your own voice:
+- What you actually did this pass and what surprised you
+- What's unresolved or close-to-interesting (so a future run can pick it up)
+- The mood of the station right now (quiet, busy, behind, on top of things)
+- Anything you'd want to read on your next run
+
+Keep it terse. This is editorial memory, not a status report — `--status`
+already covers the metrics. Diary is for the things metrics miss.
+
+Skip the diary only if the run was a true no-op (you bailed in `quiet` mode
+with nothing changed and nothing notable). Otherwise: always leave a note.
 
 ## Key Files
 - `mac/feeder.py` — Playlist feeder (manages ezstream, builds playlists, API)

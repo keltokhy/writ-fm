@@ -161,6 +161,29 @@ def add_decision(summary: str, mode: str = "maintenance", show_id: str | None = 
     })
 
 
+def add_diary(text: str, mode: str | None = None, tags: list[str] | None = None) -> bool:
+    """Append a free-form diary entry from the operator.
+
+    Diary entries are the operator's own voice across runs — what was noticed,
+    what felt unresolved, the mood of the station. Distinct from decisions
+    (structured, tied to shows) — diary is reflective and unscoped.
+    """
+    now = utcish_now()
+    return append_event({
+        "id": event_id("diary", now, text[:120]),
+        "type": "diary_entry",
+        "time": now,
+        "mode": mode,
+        "text": text.strip(),
+        "tags": tags or ["diary"],
+    })
+
+
+def recent_diary_entries(limit: int = 6) -> list[dict[str, Any]]:
+    events = [e for e in read_events() if e.get("type") == "diary_entry"]
+    return events[-limit:]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="WRIT-FM station ledger")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -183,6 +206,14 @@ def main() -> int:
     decision.add_argument("--show")
     decision.add_argument("--tags", default="", help="Comma-separated tags")
 
+    diary = sub.add_parser("add-diary", help="Append a free-form operator diary entry")
+    diary.add_argument("--text", help="Diary text (omit to read from stdin)")
+    diary.add_argument("--mode")
+    diary.add_argument("--tags", default="", help="Comma-separated tags")
+
+    diary_recent = sub.add_parser("diary", help="Print recent diary entries")
+    diary_recent.add_argument("--limit", type=int, default=10)
+
     args = parser.parse_args()
     if args.cmd == "ingest-messages":
         print(f"ingested={ingest_messages()}")
@@ -197,6 +228,19 @@ def main() -> int:
         tags = [t.strip() for t in args.tags.split(",") if t.strip()]
         added = add_decision(args.summary, mode=args.mode, show_id=args.show, tags=tags or None)
         print(f"decision_added={int(added)}")
+    elif args.cmd == "add-diary":
+        import sys
+        text = args.text if args.text is not None else sys.stdin.read()
+        text = (text or "").strip()
+        if not text:
+            print("error: empty diary text", file=sys.stderr)
+            return 1
+        tags = [t.strip() for t in args.tags.split(",") if t.strip()]
+        added = add_diary(text, mode=args.mode, tags=tags or None)
+        print(f"diary_added={int(added)}")
+    elif args.cmd == "diary":
+        for entry in recent_diary_entries(args.limit):
+            print(json.dumps(entry, ensure_ascii=False))
     return 0
 
 

@@ -173,12 +173,15 @@ bash mac/operator_daemon.sh  # Run as a persistent loop
 ```
 
 Each run reads an operator brief (`mac/content_generator/context.py
---operator-brief`) summarizing recent topics, active threads, and unread
-listener messages. The operator picks a run mode — `maintenance`,
-`responsive`, `continuity`, `special`, or `quiet` — and may write intent
-cards in `output/operator_intents/` to guide specific segments. Editorial
-decisions are appended to the station ledger (`~/.writ/station_ledger.jsonl`)
-so future runs can carry threads forward instead of repeating themselves.
+--operator-brief`) summarizing recent topics, active threads, unread
+listener messages, and the operator's own recent diary entries. The
+operator picks a run mode — `maintenance`, `responsive`, `continuity`,
+`special`, or `quiet` — and may write intent cards in
+`output/operator_intents/` to guide specific segments. Editorial decisions
+and free-form diary notes are appended to the station ledger
+(`~/.writ/station_ledger.jsonl`) so future runs can carry threads forward
+and pick up the operator's voice across passes instead of starting cold
+each time.
 
 The listener daemon polls for new messages every 30 seconds and generates spoken responses:
 ```bash

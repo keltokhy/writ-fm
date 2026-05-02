@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from ledger import ingest_messages, load_active_threads, read_events
+from ledger import ingest_messages, load_active_threads, read_events, recent_diary_entries
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SCHEDULE_PATH = PROJECT_ROOT / "config" / "schedule.yaml"
@@ -105,6 +105,7 @@ def build_operator_brief(min_segments: int = 6) -> dict[str, Any]:
         "active_threads": relevant_threads(resolved.show_id),
         "recent_listener_events": recent_listener_events(),
         "recent_show_memory": recent_show_entries(resolved.show_id),
+        "recent_diary": recent_diary_entries(limit=6),
     }
 
 
@@ -140,6 +141,14 @@ def format_operator_brief(brief: dict[str, Any]) -> str:
         lines.extend(["", "Recent show memory:"])
         for entry in brief["recent_show_memory"][-5:]:
             lines.append(f"- {entry.get('type')}: {entry.get('topic')}")
+
+    if brief.get("recent_diary"):
+        lines.extend(["", "Operator diary (most recent first):"])
+        for entry in reversed(brief["recent_diary"]):
+            ts = (entry.get("time") or "")[:16].replace("T", " ")
+            mode = entry.get("mode")
+            tag = f" ({mode})" if mode else ""
+            lines.append(f"- [{ts}{tag}] {entry.get('text', '')}")
 
     lines.extend([
         "",
