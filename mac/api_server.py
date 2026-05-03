@@ -46,6 +46,7 @@ _discogs_last_track: str | None = None
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 MESSAGES_FILE = Path.home() / ".writ" / "messages.json"
+LEDGER_PATH = Path.home() / ".writ" / "station_ledger.jsonl"
 
 # Rate limiting for messages
 MESSAGE_COOLDOWN = 300  # 5 minutes between messages per IP
@@ -84,7 +85,8 @@ class NowPlayingHandler(http.server.BaseHTTPRequestHandler):
             pass
 
     def do_GET(self):
-        path = urllib.parse.urlparse(self.path).path.rstrip("/") or "/"
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path.rstrip("/") or "/"
 
         if path in ("/now-playing", "/"):
             data = get_now_playing()
@@ -100,6 +102,15 @@ class NowPlayingHandler(http.server.BaseHTTPRequestHandler):
             self._send_json(get_play_history())
         elif path == "/messages":
             self._send_json(get_messages())
+        elif path == "/diary":
+            qs = urllib.parse.parse_qs(parsed.query)
+            limit = None
+            if qs.get("limit"):
+                try:
+                    limit = max(1, int(qs["limit"][0]))
+                except ValueError:
+                    limit = None
+            self._send_json(get_diary(limit=limit), "public, max-age=60")
         elif path == "/discogs":
             self._send_json(get_discogs_info())
         elif path == "/qr":
@@ -285,6 +296,40 @@ def save_message(message: str, ip: str):
         # Save
         with open(MESSAGES_FILE, "w") as f:
             json.dump(messages, f, indent=2)
+
+
+def get_diary(limit: int | None = None) -> dict:
+    """Read the operator's diary entries from the station ledger."""
+    generated_at = datetime.now().isoformat(timespec="seconds")
+    if not LEDGER_PATH.exists():
+        return {"generated_at": generated_at, "count": 0, "entries": []}
+
+    entries: list[dict] = []
+    try:
+        for line in LEDGER_PATH.read_text().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if event.get("type") != "diary_entry":
+                continue
+            entries.append({
+                "id": event.get("id"),
+                "time": event.get("time"),
+                "mode": event.get("mode"),
+                "text": event.get("text", ""),
+            })
+    except OSError:
+        return {"generated_at": generated_at, "count": 0, "entries": []}
+
+    entries.sort(key=lambda e: e.get("time") or "", reverse=True)
+    if limit is not None and limit > 0:
+        entries = entries[:limit]
+
+    return {"generated_at": generated_at, "count": len(entries), "entries": entries}
 
 
 def get_messages(limit: int = 20) -> list[dict]:
