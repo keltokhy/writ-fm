@@ -13,7 +13,8 @@ from pathlib import Path
 WRIT_HOME = Path.home() / ".writ"
 LEDGER_PATH = WRIT_HOME / "station_ledger.jsonl"
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_OUTPUT = PROJECT_ROOT / "docs" / "diary.html"
+DEFAULT_HTML_OUTPUT = PROJECT_ROOT / "docs" / "diary.html"
+DEFAULT_JSON_OUTPUT = PROJECT_ROOT / "docs" / "diary.json"
 
 
 def load_diary() -> list[dict]:
@@ -109,14 +110,35 @@ def render(entries: list[dict]) -> str:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Render WRIT-FM operator diary to HTML")
-    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser = argparse.ArgumentParser(description="Render WRIT-FM operator diary to HTML and JSON")
+    parser.add_argument("--html", type=Path, default=DEFAULT_HTML_OUTPUT,
+                        help="HTML output path (default: docs/diary.html)")
+    parser.add_argument("--json", type=Path, default=DEFAULT_JSON_OUTPUT,
+                        help="JSON output path for programmatic consumers (default: docs/diary.json)")
     args = parser.parse_args()
 
     entries = load_diary()
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(render(entries))
-    print(f"Wrote {len(entries)} entries to {args.output}")
+
+    args.html.parent.mkdir(parents=True, exist_ok=True)
+    args.html.write_text(render(entries))
+
+    args.json.parent.mkdir(parents=True, exist_ok=True)
+    feed = {
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "count": len(entries),
+        "entries": [
+            {
+                "id": e.get("id"),
+                "time": e.get("time"),
+                "mode": e.get("mode"),
+                "text": e.get("text", ""),
+            }
+            for e in entries
+        ],
+    }
+    args.json.write_text(json.dumps(feed, ensure_ascii=False, indent=2))
+
+    print(f"Wrote {len(entries)} entries to {args.html} and {args.json}")
     return 0
 
 
