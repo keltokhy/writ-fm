@@ -28,7 +28,7 @@ NOW_PLAYING_DEFAULT = PROJECT_ROOT / "output" / "now_playing.json"
 CURRENT_TRACK_FILE = PROJECT_ROOT / "output" / ".current_track.txt"
 
 sys.path.insert(0, str(Path(__file__).parent))
-from schedule import load_schedule, slot_key, parse_slot_key
+from schedule import load_schedule, slot_key, parse_slot_key  # noqa: E402
 SCHEDULE_PATH = PROJECT_ROOT / "config" / "schedule.yaml"
 ARCHIVE_DIR = PROJECT_ROOT / "output" / "archive"
 
@@ -149,6 +149,15 @@ def get_bumpers(show_id: str) -> list[Path]:
         f for f in show_dir.iterdir()
         if f.is_file() and f.suffix.lower() in {".flac", ".mp3", ".wav"}
     ]
+    if HISTORY_ENABLED and files:
+        try:
+            repeat_hours = int(os.environ.get("WRIT_BUMPER_REPEAT_HOURS", "4"))
+            recent = get_history().get_recent_filepaths(hours=repeat_hours)
+            fresh = [f for f in files if str(f) not in recent]
+            if fresh:
+                files = fresh
+        except Exception as e:
+            log(f"  Bumper history filter failed: {e}")
     random.shuffle(files)
     return files
 

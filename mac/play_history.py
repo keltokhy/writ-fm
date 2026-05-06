@@ -6,10 +6,9 @@ Tracks all played tracks to prevent repeats and enable analytics.
 Uses SQLite for persistent storage.
 """
 
-import sqlite3
 import json
+import sqlite3
 from pathlib import Path
-from datetime import datetime, timedelta
 from typing import Optional
 
 # Default database location
@@ -81,6 +80,19 @@ class PlayHistory:
                 (limit,),
             )
             return [dict(row) for row in cursor.fetchall()]
+
+    def get_recent_filepaths(self, hours: int = 4) -> set[str]:
+        """Get filepaths played within the last N hours."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                """
+                SELECT DISTINCT filepath
+                FROM plays
+                WHERE played_at >= datetime('now', ?)
+                """,
+                (f"-{hours} hours",),
+            )
+            return {row[0] for row in cursor.fetchall()}
 
     def get_play_count(self, filepath: str) -> int:
         """Get total play count for a track."""

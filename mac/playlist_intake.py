@@ -66,6 +66,20 @@ def archive_if_slot_track(prev: str) -> None:
         pass
 
 
+def select_next_track(tracks: list[str], prev: str) -> str:
+    """Return the next existing track after prev, skipping archived paths."""
+    if not tracks:
+        return ""
+
+    start_idx = tracks.index(prev) + 1 if prev in tracks else 0
+    for offset in range(len(tracks)):
+        candidate = tracks[(start_idx + offset) % len(tracks)]
+        if Path(candidate).exists():
+            return candidate
+
+    return ""
+
+
 def write_current(track: str) -> None:
     try:
         tmp = CURRENT_TRACK_FILE.with_suffix(".tmp")
@@ -85,14 +99,10 @@ def main() -> int:
     prev = read_previous()
     archive_if_slot_track(prev)
 
-    if prev in tracks:
-        next_idx = tracks.index(prev) + 1
-    else:
-        next_idx = 0
-    if next_idx >= len(tracks):
-        next_idx = 0
+    next_track = select_next_track(tracks, prev)
+    if not next_track:
+        return 0
 
-    next_track = tracks[next_idx]
     write_current(next_track)
     sys.stdout.write(next_track + "\n")
     return 0
