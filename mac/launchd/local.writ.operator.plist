@@ -10,27 +10,13 @@
   <array>
     <string>/bin/bash</string>
     <string>-lc</string>
-    <string>cd "${WRIT_HOME:-$HOME/wvoid-fm}" &amp;&amp; exec bash mac/operator_daemon.sh</string>
+    <string>export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$HOME/.local/bin"; cd "${WRIT_HOME:-$HOME/wvoid-fm}" &amp;&amp; mkdir -p "$HOME/Library/Logs/writ" &amp;&amp; exec bash mac/operator_daemon.sh &gt;&gt; "$HOME/Library/Logs/writ/operator_launchd.log" 2&gt;&gt; "$HOME/Library/Logs/writ/operator_launchd.err.log"</string>
   </array>
-
-  <key>EnvironmentVariables</key>
-  <dict>
-    <key>HOME</key>
-    <string>/Users/khaled</string>
-    <key>PATH</key>
-    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/khaled/.local/bin</string>
-  </dict>
 
   <key>RunAtLoad</key>
   <true/>
 
   <key>KeepAlive</key>
   <true/>
-
-  <key>StandardOutPath</key>
-  <string>/Users/khaled/Library/Logs/writ/operator_launchd.log</string>
-
-  <key>StandardErrorPath</key>
-  <string>/Users/khaled/Library/Logs/writ/operator_launchd.err.log</string>
 </dict>
 </plist>
