@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from ledger import ingest_messages, load_active_threads, read_events, recent_diary_entries
+from topic_bank import topic_bank_summary
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT / "mac"))
@@ -92,6 +93,7 @@ def build_operator_brief(min_segments: int = 3) -> dict[str, Any]:
             "segments": count,
             "status": "ok" if count >= min_segments else "low" if count > 0 else "empty",
         })
+    focuses = sorted({show.topic_focus for show in schedule.shows.values() if show.topic_focus})
 
     return {
         "generated_at": datetime.now().isoformat(timespec="seconds"),
@@ -111,6 +113,7 @@ def build_operator_brief(min_segments: int = 3) -> dict[str, Any]:
         },
         "upcoming_airings": airings,
         "active_threads": relevant_threads(resolved.show_id),
+        "operator_topic_bank": topic_bank_summary(focuses),
         "recent_listener_events": recent_listener_events(),
         "recent_show_memory": recent_show_entries(resolved.show_id),
         "recent_diary": recent_diary_entries(limit=6),
@@ -136,6 +139,17 @@ def format_operator_brief(brief: dict[str, Any]) -> str:
             f"- {airing['slot']} {airing['show_name']}: "
             f"{airing['segments']} segments [{airing['status']}]"
         )
+
+    topic_bank = brief.get("operator_topic_bank") or {}
+    if topic_bank:
+        lines.extend([
+            "",
+            "Operator topic bank:",
+            f"- Path: {topic_bank.get('path')}",
+            f"- Operator-added topics: {topic_bank.get('total', 0)}",
+        ])
+        for focus, count in (topic_bank.get("counts") or {}).items():
+            lines.append(f"- {focus}: {count}")
 
     if brief["active_threads"]:
         lines.extend(["", "Active editorial threads:"])

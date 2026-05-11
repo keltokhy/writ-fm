@@ -1,3 +1,5 @@
+import json
+import os
 import random
 import tempfile
 import unittest
@@ -65,6 +67,29 @@ class TalkTopicTests(unittest.TestCase):
 
         self.assertEqual(configured_focuses - set(talk_generator.TOPIC_POOLS), set())
         self.assertTrue(klod_focuses.isdisjoint(cdex_focuses))
+
+        for focus in configured_focuses:
+            self.assertGreaterEqual(len(talk_generator.TOPIC_POOLS[focus]), 20, focus)
+
+    def test_select_topic_includes_station_operator_topic_bank(self):
+        operator_topic = "Operator-added buried scene - test only"
+        with tempfile.TemporaryDirectory() as tmp:
+            bank_path = Path(tmp) / "operator_topic_bank.json"
+            bank_path.write_text(json.dumps({
+                "topics": {"music_history": [operator_topic]},
+            }))
+
+            with (
+                patch.dict(os.environ, {"WRIT_TOPIC_BANK_FILE": str(bank_path)}),
+                patch.object(random, "choice", side_effect=lambda items: items[0]),
+            ):
+                topic = talk_generator.select_topic(
+                    "music_history",
+                    "deep_dive",
+                    avoid_topics=list(talk_generator.TOPIC_POOLS["music_history"]),
+                )
+
+        self.assertEqual(topic, operator_topic)
 
 
 if __name__ == "__main__":

@@ -189,7 +189,8 @@ The operator daemon runs Claude Code on a 15-minute loop to:
 2. Stock AI music tracks when music-gen.server is available (minimum 20 per show)
 3. Stock short talk breaks for current and upcoming shows (minimum 3 per slot)
 4. Process listener messages into on-air responses
-5. Carry editorial continuity across runs via the station ledger and intent cards
+5. Grow the station-local operator topic bank when scheduled focus areas are thin
+6. Carry editorial continuity across runs via the station ledger and intent cards
 
 ```bash
 ./writ start operator   # Start via writ CLI (tmux-managed)
@@ -199,7 +200,8 @@ bash mac/operator_daemon.sh  # Run as a persistent loop
 
 Each run reads an operator brief (`mac/content_generator/context.py
 --operator-brief`) summarizing recent topics, active threads, unread
-listener messages, and the operator's own recent diary entries. The
+listener messages, station-local topic-bank counts, and the operator's own
+recent diary entries. The
 operator picks a run mode — `maintenance`, `responsive`, `continuity`,
 `special`, or `quiet` — and may write intent cards in
 `output/operator_intents/` to guide specific segments. Editorial decisions
@@ -207,6 +209,12 @@ and free-form diary notes are appended to the station ledger
 (`~/.writ/station_ledger.jsonl`) so future runs can carry threads forward
 and pick up the operator's voice across passes instead of starting cold
 each time.
+
+Each station also has an operator-managed topic bank at
+`$WRIT_TOPIC_BANK_FILE`. `talk_generator.py` automatically merges those
+operator-added topics with the built-in seed pools, so KLOD-FM and CDEX-FM can
+keep expanding their own editorial surfaces without sharing content or editing
+source code during normal operation.
 
 The listener daemon polls for new messages every 30 seconds and generates spoken responses:
 ```bash
@@ -244,6 +252,7 @@ The listener daemon polls for new messages every 30 seconds and generates spoken
 │   ├── kokoro/                 # Kokoro TTS wrapper
 │   ├── content_generator/
 │   │   ├── talk_generator.py              # Talk segment generator (with --intent support)
+│   │   ├── topic_bank.py                  # Station-local operator topic bank
 │   │   ├── music_bumper_generator.py      # AI music bumper generator
 │   │   ├── listener_response_generator.py # Listener message → audio
 │   │   ├── context.py                     # Operator brief and intent card templates

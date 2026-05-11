@@ -122,6 +122,10 @@ class StationConfig:
         return self.output_dir / "operator_intents"
 
     @property
+    def topic_bank_file(self) -> Path:
+        return self.output_dir / "operator_topic_bank.json"
+
+    @property
     def messages_file(self) -> Path:
         return self.home_dir / "messages.json"
 
@@ -153,6 +157,7 @@ class StationConfig:
             "WRIT_SCRIPTS_DIR": str(self.scripts_dir),
             "WRIT_SHOW_LOG_DIR": str(self.show_log_dir),
             "WRIT_INTENT_DIR": str(self.intent_dir),
+            "WRIT_TOPIC_BANK_FILE": str(self.topic_bank_file),
             "WRIT_PLAYLIST_FILE": str(self.playlist_file),
             "WRIT_SILENCE_FILE": str(self.silence_file),
             "WRIT_CURRENT_TRACK_FILE": str(self.current_track_file),
@@ -199,6 +204,7 @@ class StationConfig:
                 "messages_file": str(self.messages_file),
                 "ledger_path": str(self.ledger_path),
                 "history_db_path": str(self.history_db_path),
+                "topic_bank_file": str(self.topic_bank_file),
                 "public_now_playing_paths": [str(p) for p in self.public_now_playing_paths],
             },
         }

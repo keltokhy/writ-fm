@@ -30,10 +30,12 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 import random
 import sys
 import time
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
@@ -55,11 +57,13 @@ OUTPUT_DIR = STATION.talk_dir
 SCRIPTS_DIR = STATION.scripts_dir
 SHOW_LOG_DIR = STATION.show_log_dir
 MESSAGES_FILE = STATION.messages_file
+LOCK_PATH = PROJECT_ROOT / "output" / ".talk_generator.lock"
 
 sys.path.insert(0, str(Path(__file__).parent))
 from persona import build_host_prompt  # noqa: E402
 from context import load_intent, format_prompt_context  # noqa: E402
 from ledger import append_event, event_id  # noqa: E402
+from topic_bank import merge_topic_pools  # noqa: E402
 
 # =============================================================================
 # SEGMENT TYPE DEFINITIONS
@@ -299,6 +303,278 @@ TOPIC_POOLS = {
     ],
 }
 
+TOPIC_POOL_EXPANSIONS = {
+    "philosophy": [
+        "The ethics of attention - what we owe the thing we notice",
+        "Private rituals in public spaces - tiny ceremonies no one sees",
+        "The difference between solitude and being left alone",
+        "How objects become witnesses to a life",
+        "The mood of thresholds - doors, stations, lobbies, and departures",
+        "Why unfinished conversations keep broadcasting inside us",
+        "The ordinary sublime - grocery aisles, laundromats, and late buses",
+        "Patience as a form of intelligence",
+        "What repetition teaches that novelty refuses to say",
+        "The private weather of a room after everyone leaves",
+        "Why some memories arrive with sound but no picture",
+        "The strange mercy of not knowing what happens next",
+        "How names change when nobody is around to use them",
+        "The difference between a sign and a signal",
+        "Why the future always borrows furniture from the past",
+    ],
+    "music_history": [
+        "The cassette demo as prophecy - rough versions that knew the future",
+        "How drum machines changed the politics of the studio",
+        "Session musicians as anonymous architects of memory",
+        "The hidden life of compilation records",
+        "How church basements became rehearsal rooms for whole genres",
+        "The railroad map inside American music",
+        "Why some microphones have a sound before anyone sings",
+        "The economics of the three-minute single",
+        "Dub plates, acetates, and music meant to vanish",
+        "The nightclub sound system as an instrument",
+        "How regional radio DJs broke national taste",
+        "The producer as translator between chaos and song",
+        "Lost labels that changed everything for a few city blocks",
+        "Why live albums are arguments with the studio",
+        "The secret emotional labor of the backing vocalist",
+    ],
+    "current_events": [
+        "What institutions sound like when they are losing trust",
+        "The politics of delay - who benefits when decisions wait",
+        "Supply chains as invisible weather",
+        "Public safety and the language of permission",
+        "How maps become arguments during a crisis",
+        "The new etiquette of artificial intelligence at work",
+        "Why housing debates keep avoiding the word home",
+        "Labor organizing in places that were designed to be temporary",
+        "The quiet politics of public libraries",
+        "When data dashboards become moral theater",
+        "The attention economy after everyone knows the trick",
+        "How local news disappears before democracy notices",
+        "The difference between resilience and being abandoned",
+        "What disaster preparation reveals about social class",
+        "Why every generation thinks the conversation got worse",
+    ],
+    "culture": [
+        "The etiquette of borrowing a charger from a stranger",
+        "Hotel lobbies as temporary democracies",
+        "The sociology of the corner store",
+        "What laundromats know about neighborhood time",
+        "Why barbershops and salons are unofficial archives",
+        "The emotional geography of a good booth in a diner",
+        "How thrift stores become museums with price tags",
+        "The quiet codes of regulars and newcomers",
+        "Why people still read flyers stapled to telephone poles",
+        "The kitchen table as a broadcast desk",
+        "Public benches and the politics of who gets to rest",
+        "The afterlife of malls as weatherproof town squares",
+        "How small talk keeps cities from becoming machines",
+        "The social contract of holding the door",
+        "Why some neighborhoods are remembered by smell before name",
+    ],
+    "soul_music": [
+        "The hi-hat as heartbeat in 1970s soul",
+        "Why the bridge is where soul songs tell the truth",
+        "The bass player as emotional narrator",
+        "Handclaps, foot stomps, and the body as rhythm section",
+        "The politics of sweetness in protest music",
+        "How falsetto became a language of vulnerability",
+        "The string arrangement that turns heartbreak cinematic",
+        "Quiet storm as architecture for intimacy",
+        "Why a horn stab can sound like an answer",
+        "The church shout hiding inside secular radio",
+        "Family bands and the sound of shared timing",
+        "How disco taught grief to keep moving",
+        "The space between pocket and swing",
+        "Why soul ballads leave room for breath",
+        "The producer who knew when not to fix the take",
+    ],
+    "night_philosophy": [
+        "The moon as the oldest public light",
+        "Why clocks feel accusatory after midnight",
+        "The nocturnal grammar of empty streets",
+        "How dreams edit the day without asking permission",
+        "The kindness of a lamp in one window",
+        "Why distant traffic becomes oceanic at 3am",
+        "The hour when regret becomes practical",
+        "Insomnia and the archive of unfinished thoughts",
+        "The metaphysics of a refrigerator light",
+        "Why whispered voices feel more truthful",
+        "What darkness gives back to the imagination",
+        "The difference between being awake and being available",
+        "How night turns ordinary rooms into stages",
+        "The private theology of trying to sleep",
+        "Why dawn feels like forgiveness even when nothing changed",
+    ],
+    "listeners": [
+        "Messages from parked cars - where people listen between destinations",
+        "The first song you remember hearing alone",
+        "Calls from night-shift kitchens and loading docks",
+        "The record someone gave you and what it cost them",
+        "Listener maps - drawing a station from points of attention",
+        "The song you cannot play casually anymore",
+        "Questions from people who should be sleeping",
+        "Dedications to people who will never hear them",
+        "The places where the station keeps you company",
+        "Letters about parents, mixtapes, and inherited taste",
+        "What listeners hear in the static between songs",
+        "The city you left and the song that still knows it",
+        "Requests that are really confessions",
+        "Messages from long drives with no destination",
+        "The private histories hidden inside public songs",
+    ],
+    "open_issues": [
+        "Life tickets with no owner - deciding what is actually actionable",
+        "The difference between a workaround and a way through",
+        "Personal backlogs and the courage to close wontfix",
+        "When the expected behavior was never specified",
+        "Triage for days that arrive already overloaded",
+        "The bug you keep because it reminds you how the system works",
+        "When a feature request is really a loneliness report",
+        "Reopening issues that past versions of you closed too early",
+        "Why some problems need labels before they need solutions",
+        "The kindness of a small reproducible example",
+        "What to do when the acceptance criteria are a feeling",
+        "The release notes for becoming a little less stuck",
+        "When the incident commander is also the incident",
+        "The difference between unresolved and still alive",
+        "How to archive a thread without pretending it is over",
+    ],
+    "debugging_culture": [
+        "The first five minutes after the alert",
+        "Why logs are biographies written by machines",
+        "The quiet heroism of narrowing scope",
+        "How a dashboard teaches people what to fear",
+        "The difference between a symptom and a confession",
+        "Why the weird bug is often the honest bug",
+        "Debugging as hospitality for future maintainers",
+        "The ritual of saying what changed out loud",
+        "When correlation looks guilty but has an alibi",
+        "The moral value of good timestamps",
+        "Why incident rooms need calm more than brilliance",
+        "The aftercare nobody schedules after a production fire",
+        "How a log line becomes a cultural artifact",
+        "The danger of being certain too early",
+        "Why the best debugger asks simpler questions",
+    ],
+    "systems_dreams": [
+        "Cache invalidation as a story about memory and trust",
+        "What a queue hopes for while it waits",
+        "The dream logic of eventual consistency",
+        "Why retries sound like stubbornness",
+        "The sleep cycle of a cluster under load",
+        "Replication lag and the loneliness of copies",
+        "Heartbeats as proof of life",
+        "The ritual meaning of a graceful shutdown",
+        "What garbage collection knows about letting go",
+        "The private life of idle workers",
+        "Why cold storage sounds like a mythological place",
+        "The difference between uptime and being well",
+        "How failover rehearses grief before it happens",
+        "The poetry of a process waiting on input",
+        "Why state always has a past",
+    ],
+    "software_craft": [
+        "The small kindness of a good variable name",
+        "Why tests are letters to tomorrow",
+        "Refactoring as changing the question without changing the answer",
+        "The taste involved in deleting a feature",
+        "Why boring code is sometimes the brave code",
+        "The social contract hidden inside an interface",
+        "How documentation becomes maintenance infrastructure",
+        "The danger of abstractions that flatter the author",
+        "Why review comments need verbs, not vibes",
+        "The craft of making failure legible",
+        "When a helper function earns its name",
+        "How local conventions preserve team memory",
+        "The dignity of fixing the thing near the thing",
+        "Why build scripts deserve design attention",
+        "The discipline of leaving a clean diff behind",
+    ],
+    "internet_history": [
+        "The etiquette encoded in early mailing lists",
+        "Why FTP directories felt like hidden cities",
+        "The social life of user agents",
+        "How broken links became ruins",
+        "Standards committees as slow-motion drama",
+        "The bulletin board as neighborhood infrastructure",
+        "What old web rings understood about belonging",
+        "The politics of default ports",
+        "Why protocols outlive the companies that popularized them",
+        "The cultural memory inside error codes",
+        "How packet switching changed imagination",
+        "The browser wars as a fight over daily life",
+        "Why compatibility layers feel haunted",
+        "The archival value of obsolete documentation",
+        "What early forums knew about moderation before platforms scaled",
+    ],
+    "failure_analysis": [
+        "The meeting after the incident and what it refuses to say",
+        "Why root cause is rarely a root",
+        "The organizational smell of a missing owner",
+        "How paging policy becomes labor policy",
+        "The difference between detection and understanding",
+        "Why postmortems need narrative discipline",
+        "The danger of a green dashboard after a bad week",
+        "How near misses teach without the drama of failure",
+        "Why remediation without ownership becomes folklore",
+        "The emotional half-life of an outage",
+        "What incident timelines reveal about trust",
+        "How small defaults become large blast radiuses",
+        "The cost of alerts nobody believes",
+        "Why reliability work is mostly memory work",
+        "The quiet politics of severity labels",
+    ],
+    "tool_design": [
+        "Undo buttons as a philosophy of forgiveness",
+        "Why defaults are promises, not shortcuts",
+        "The interface that respects interruption",
+        "How empty states teach users what matters",
+        "The difference between guidance and condescension",
+        "Why speed without reversibility creates fear",
+        "The emotional texture of a loading state",
+        "How keyboard shortcuts reveal power structures",
+        "The kindness of making dangerous actions explicit",
+        "Why good forms ask only what they can use",
+        "How tooltips become tiny acts of care",
+        "The politics of notification badges",
+        "Why export buttons are trust mechanisms",
+        "The design value of saying no clearly",
+        "How a tool earns the right to be quiet",
+    ],
+    "technical_debate": [
+        "Rewrite versus repair when the old system still works",
+        "Should architecture optimize for experts or newcomers",
+        "The case for fewer dependencies and the case against purity",
+        "When speed is a feature and when it is a trap",
+        "The moral hazard of temporary infrastructure",
+        "Types as guardrails versus types as theater",
+        "Why observability can become surveillance if handled badly",
+        "Should teams standardize early or let patterns emerge",
+        "The tradeoff between local clarity and global consistency",
+        "When a monolith is a kindness",
+        "The cost of clever automation that nobody owns",
+        "How much process should a small team tolerate",
+        "The tension between user empathy and operator sanity",
+        "When to preserve weirdness and when to normalize it",
+        "The argument hidden inside every build-vs-buy decision",
+    ],
+}
+
+for focus, extra_topics in TOPIC_POOL_EXPANSIONS.items():
+    pool = TOPIC_POOLS.setdefault(focus, [])
+    seen = {topic.lower() for topic in pool}
+    for topic in extra_topics:
+        key = topic.lower()
+        if key not in seen:
+            seen.add(key)
+            pool.append(topic)
+
+
+def effective_topic_pools() -> dict[str, list[str]]:
+    """Built-in topics plus station-local operator-added topics."""
+    return merge_topic_pools(TOPIC_POOLS)
+
 # Guest characters for interview segments
 INTERVIEW_GUESTS = [
     {"name": "a retired record store owner from Detroit", "context": "Spent 40 years curating vinyl for a neighborhood"},
@@ -315,6 +591,19 @@ INTERVIEW_GUESTS = [
 # =============================================================================
 # SHOW LOG — persistent memory across sessions
 # =============================================================================
+
+
+@contextmanager
+def generation_lock():
+    """Serialize TTS-heavy talk generation across all station operators."""
+    LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with LOCK_PATH.open("w") as lock_file:
+        log(f"Waiting for talk generator lock: {LOCK_PATH}")
+        fcntl.flock(lock_file, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_file, fcntl.LOCK_UN)
 
 
 def read_show_log(show_id: str, n: int = 10) -> list[dict]:
@@ -611,10 +900,11 @@ def select_topic(
     avoid_slugs: set[str] | None = None,
 ) -> str:
     """Pick a topic, avoiding recent, requested, and in-slot repeats."""
-    pool = TOPIC_POOLS.get(topic_focus, [])
+    topic_pools = effective_topic_pools()
+    pool = topic_pools.get(topic_focus, [])
     if not pool:
         all_topics = []
-        for topics in TOPIC_POOLS.values():
+        for topics in topic_pools.values():
             all_topics.extend(topics)
         pool = all_topics
     avoid_slugs = avoid_slugs or set()
@@ -1158,10 +1448,11 @@ def main():
 
     if args.list_topics:
         focus = args.list_topics
-        pool = TOPIC_POOLS.get(focus)
+        topic_pools = effective_topic_pools()
+        pool = topic_pools.get(focus)
         if not pool:
             print(f"Unknown focus: {focus}")
-            print(f"Available: {', '.join(TOPIC_POOLS.keys())}")
+            print(f"Available: {', '.join(topic_pools.keys())}")
             return 1
         print(f"\n=== Topics: {focus} ===\n")
         for i, topic in enumerate(pool, 1):
@@ -1210,31 +1501,32 @@ def main():
         # All upcoming slots for this show are stocked — fall back to current airing
         return slot_key(schedule.airing_start())
 
-    if args.plan:
-        show_id = args.show or schedule.resolve().show_id
-        generate_planned_show(show_id, schedule, slot=resolve_slot(show_id))
-    elif args.all or args.stock_ahead:
-        n = args.stock_ahead or 4
-        stock_ahead(schedule, airings_ahead=n, min_per_slot=args.min, count_per_generation=args.count)
-    elif args.show:
-        generate_for_show(
-            args.show, schedule,
-            slot=resolve_slot(args.show),
-            count=args.count,
-            segment_type=args.segment_type,
-            topic=args.topic,
-            intent=intent,
-        )
-    else:
-        resolved = schedule.resolve()
-        generate_for_show(
-            resolved.show_id, schedule,
-            slot=resolve_slot(resolved.show_id),
-            count=args.count,
-            segment_type=args.segment_type,
-            topic=args.topic,
-            intent=intent,
-        )
+    with generation_lock():
+        if args.plan:
+            show_id = args.show or schedule.resolve().show_id
+            generate_planned_show(show_id, schedule, slot=resolve_slot(show_id))
+        elif args.all or args.stock_ahead:
+            n = args.stock_ahead or 4
+            stock_ahead(schedule, airings_ahead=n, min_per_slot=args.min, count_per_generation=args.count)
+        elif args.show:
+            generate_for_show(
+                args.show, schedule,
+                slot=resolve_slot(args.show),
+                count=args.count,
+                segment_type=args.segment_type,
+                topic=args.topic,
+                intent=intent,
+            )
+        else:
+            resolved = schedule.resolve()
+            generate_for_show(
+                resolved.show_id, schedule,
+                slot=resolve_slot(resolved.show_id),
+                count=args.count,
+                segment_type=args.segment_type,
+                topic=args.topic,
+                intent=intent,
+            )
 
     return 0
 

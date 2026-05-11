@@ -28,6 +28,7 @@ class StationConfigTests(unittest.TestCase):
             "scripts_dir",
             "show_log_dir",
             "intent_dir",
+            "topic_bank_file",
             "messages_file",
             "ledger_path",
             "active_threads_path",

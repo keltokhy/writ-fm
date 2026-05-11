@@ -9,8 +9,9 @@ Priorities, in order:
 2. Keep AI music tracks stocked when music-gen.server is available.
 3. Keep the current show and next few shows stocked with short hosted talk breaks.
 4. Process listener messages into on-air responses.
-5. Leave behind useful station memory for future runs (ledger + diary).
-6. Do the minimum necessary work each run.
+5. Grow this station's topic bank when the brief shows thin or repetitive focus areas.
+6. Leave behind useful station memory for future runs (ledger + diary).
+7. Do the minimum necessary work each run.
 
 ## How the Station Works
 
@@ -58,6 +59,32 @@ cd mac/content_generator && uv run python talk_generator.py --intent "$WRIT_INTE
 
 Intent cards are for taste: tone, threads to use, listener material to carry,
 and topics to avoid. Do not overuse them for routine top-ups.
+
+### 0.5. Grow the Station Topic Bank
+Each station has a station-local operator topic bank at `$WRIT_TOPIC_BANK_FILE`.
+The talk generator automatically merges it with the built-in seed topics. This
+is how you expand the station's editorial range without editing code.
+
+Check it before routine generation:
+```bash
+cd mac/content_generator && uv run python topic_bank.py --status
+```
+
+When the current show's focus has fewer than 10 operator-added topics, add 3-5
+concrete, station-appropriate topics. Keep KLOD-FM rooted in music, night,
+culture, and radio intimacy. Keep CDEX-FM rooted in software, systems,
+debugging, tools, and technical culture. Do not copy topics between stations.
+
+```bash
+cd mac/content_generator && uv run python topic_bank.py --focus "$FOCUS" \
+  --add "Specific topic with a point of view - concrete angle" \
+  --add "Another specific topic - why it matters to this station"
+```
+
+Good operator-added topics are specific enough to make a fresh segment likely:
+names of places, rituals, failure modes, scenes, design tensions, listener
+situations, or technical choices. Avoid generic buckets like "technology" or
+"relationships"; those are too broad to guide a good break.
 
 When you make a meaningful editorial decision, leave a ledger note:
 ```bash
@@ -202,6 +229,7 @@ root or substitute the path you cd'd from at the start of this run.)
 - `mac/schedule.py` — Schedule parser and resolver
 - `config/schedule.yaml` — Weekly show schedule (8 talk shows)
 - `mac/content_generator/talk_generator.py` — Talk segment generator (station agent + Kokoro)
+- `mac/content_generator/topic_bank.py` — Station-local operator topic bank
 - `mac/content_generator/music_bumper_generator.py` — AI music bumper generator (ACE-Step)
 - `mac/content_generator/persona.py` — Multi-host persona system
 - `$WRIT_TALK_DIR/{show_id}/` — Generated talk segments per show
@@ -236,6 +264,7 @@ root or substitute the path you cd'd from at the start of this run.)
 - If music is stocked, do not overfill talk just because a slot is below old spoken-content targets
 - If the current slot has 0 talk breaks, add one concise break before looking ahead
 - Use the operator brief before deciding whether to generate, defer, or stay quiet
+- Expand `$WRIT_TOPIC_BANK_FILE` when a scheduled focus has fewer than 10 operator-added topics
 - Promote only durable listener motifs into active threads; most messages should not become lore
 - Use intent cards for editorial continuity, not for every routine segment
 - Content is slot-scoped — it plays only during its airing, then archives. Don't try to re-use.
