@@ -79,7 +79,7 @@ shows:
     name: "Open Issue Hours"
     description: "Listener questions, unresolved threads, bug reports from life, and careful replies."
     host: "ada_loop"
-    topic_focus: "listeners"
+    topic_focus: "open_issues"
     segment_types: ["listener_mailbag", "deep_dive", "story"]
     bumper_style: "soul"
     voices:

@@ -241,6 +241,13 @@ TOPIC_POOLS = {
         "Dedications and confessions from the inbox",
         "Where are you listening from? - the geography of our audience",
     ],
+    "open_issues": [
+        "Bug reports from ordinary life - when the repro steps are feelings",
+        "Listener pull requests - small patches for daily routines",
+        "Unclosed tabs of the mind - what we keep meaning to finish",
+        "Error budgets for being human - choosing what can fail gracefully",
+        "Questions from the issue queue - unresolved threads worth reopening",
+    ],
     "debugging_culture": [
         "What a stack trace is trying to confess",
         "Why the hardest bugs only happen after midnight",
