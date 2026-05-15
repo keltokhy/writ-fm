@@ -62,7 +62,7 @@ case "${WRIT_AGENT_KIND:-claude}" in
         AGENT_CMD=("${WRIT_AGENT_COMMAND:-claude}" -p "$PROMPT" --allowedTools "Bash,Read,Write,Edit,Glob,Grep")
         ;;
     codex)
-        AGENT_CMD=("${WRIT_AGENT_COMMAND:-codex}" exec --cd "$PROJECT_ROOT" --sandbox danger-full-access --ask-for-approval never --color never "$PROMPT")
+        AGENT_CMD=("${WRIT_AGENT_COMMAND:-codex}" exec --cd "$PROJECT_ROOT" --sandbox danger-full-access --color never "$PROMPT")
         ;;
     *)
         echo "[operator] unsupported station agent: ${WRIT_AGENT_KIND}" | tee -a "$SESSION_LOG" >&2
