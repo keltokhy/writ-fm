@@ -56,7 +56,7 @@ WRIT-FM is a music-forward internet radio station where:
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Install system dependencies (macOS)
-brew install icecast ffmpeg ezstream vorbis-tools
+brew install tmux icecast ffmpeg ezstream vorbis-tools
 
 # Set up Python environment
 uv sync
