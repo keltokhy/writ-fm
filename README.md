@@ -64,12 +64,64 @@ uv sync
 
 ### 2. Set up TTS
 
+WRIT-FM ships three pluggable TTS engines. Each engine lives in its own venv so
+their PyTorch / MLX dependencies don't fight each other. Set up the one(s) you
+want — Kokoro is the default and is required for the out-of-the-box config.
+
 ```bash
-cd mac/kokoro
-uv venv
-uv pip install kokoro soundfile
-# Downloads ~200MB model on first run
+# Kokoro — fast, default, ~200MB on first run
+cd mac/kokoro && uv venv && uv pip install kokoro soundfile && cd ../..
+
+# Chatterbox (Resemble AI) — slower, supports voice cloning from a short reference WAV.
+# setuptools<81 is required: chatterbox's `perth` watermarker imports pkg_resources,
+# which setuptools 81+ removed. Without the pin you'll hit
+# "'NoneType' object is not callable" on first load.
+cd mac/chatterbox && uv venv && uv pip install chatterbox-tts soundfile torch torchaudio 'setuptools<81' && cd ../..
+
+# Voxtral (Mistral 4B, multilingual) — Apple Silicon path via MLX.
+# mistral-common[audio] is required for Voxtral's tekken tokenizer.
+cd mac/voxtral && uv venv && uv pip install mlx-audio soundfile 'mistral-common[audio]' && cd ../..
 ```
+
+Pick the active engine per station in `config/stations.yaml`:
+
+```yaml
+stations:
+  writ-fm:
+    tts_engine: kokoro   # kokoro | chatterbox | voxtral
+```
+
+Or override at runtime:
+
+```bash
+WRIT_TTS_ENGINE=chatterbox ./writ generate talk
+```
+
+A/B test all three on the same line:
+
+```bash
+./writ tts-test all "Hello from the frequency between frequencies."
+./writ tts-test chatterbox "Test the cloned voice" --voice samples/my_voice.wav
+./writ tts-test voxtral "Bonjour le monde" --voice casual_female
+# Outputs land in output/tts-test/.
+```
+
+**Per-engine voice mapping in `config/schedule.yaml`** — extend any `voice:`
+field from a single Kokoro voice id to a per-engine dict so each engine picks
+the right voice/sample without you reshuffling configs:
+
+```yaml
+shows:
+  midnight_signal:
+    voices:
+      host:
+        kokoro: am_michael
+        chatterbox: samples/host_clone.wav   # reference WAV for voice cloning
+        voxtral: neutral_male
+```
+
+The legacy single-string form (`host: am_michael`) still works and is treated
+as the Kokoro voice; non-Kokoro engines fall back to their built-in defaults.
 
 ### 3. Configure
 

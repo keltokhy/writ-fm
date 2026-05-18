@@ -43,7 +43,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from helpers import (
     log, preprocess_for_tts, fetch_headlines, format_headlines, run_claude,
-    render_kokoro, render_single_voice, concatenate_audio, get_audio_duration,
+    render_speech, render_single_voice, concatenate_audio, get_audio_duration,
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -1113,7 +1113,7 @@ def render_multi_voice(script: str, output_path: Path, voices: dict[str, str]) -
                 chunk_files.append(chunk_path)
         else:
             for attempt in range(2):
-                if render_kokoro(text, chunk_path, voice):
+                if render_speech(text, chunk_path, voice):
                     chunk_files.append(chunk_path)
                     break
                 time.sleep(2)

@@ -420,6 +420,17 @@ cmd_attach() {
     else validate_component "$comp"; exec tmux attach -t "$SESSION:$(component_window "$comp")"; fi
 }
 
+cmd_tts_test() {
+    if [[ $# -lt 2 ]]; then
+        echo "Usage: writ tts-test <kokoro|chatterbox|voxtral|all> \"text\" [--voice <id-or-path>]"
+        echo "Renders the same text through one or every TTS engine."
+        echo "Outputs land in output/tts-test/."
+        exit 1
+    fi
+    cd "$PROJECT_ROOT"
+    exec uv run python mac/tts_test.py "$@"
+}
+
 cmd_generate() {
     local type="${1:-}"; shift 2>/dev/null || true
     case "$type" in
@@ -461,6 +472,7 @@ cmd_help() {
   writ logs <component> [-f]  Show logs (-f for live)
   writ attach [component]     Attach to tmux window
   writ generate <talk|music>  Generate content (foreground)
+  writ tts-test <engine> "..." Render a sample WAV via one TTS engine (kokoro|chatterbox|voxtral|all)
 
   Select station:  writ --station klod-fm start stream
   Components:      icecast  stream  tunnel  api  youtube  music-gen  operator  listener
@@ -479,6 +491,7 @@ case "$cmd" in
     logs)    cmd_logs "$@" ;;
     attach)  cmd_attach "$@" ;;
     generate) cmd_generate "$@" ;;
+    tts-test) cmd_tts_test "$@" ;;
     help|--help|-h) cmd_help ;;
     *)       err "Unknown: $cmd"; cmd_help; exit 1 ;;
 esac

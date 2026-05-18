@@ -235,6 +235,52 @@ def format_headlines(headlines: list[dict], max_items: int | None = None) -> str
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _KOKORO_DIR = _PROJECT_ROOT / "mac" / "kokoro"
 _KOKORO_PYTHON = _KOKORO_DIR / ".venv" / "bin" / "python"
+_CHATTERBOX_DIR = _PROJECT_ROOT / "mac" / "chatterbox"
+_CHATTERBOX_PYTHON = _CHATTERBOX_DIR / ".venv" / "bin" / "python"
+_VOXTRAL_DIR = _PROJECT_ROOT / "mac" / "voxtral"
+_VOXTRAL_PYTHON = _VOXTRAL_DIR / ".venv" / "bin" / "python"
+
+_SUPPORTED_ENGINES = ("kokoro", "chatterbox", "voxtral")
+
+_DEFAULT_ENGINE_VOICES = {
+    "kokoro": "am_michael",
+    "chatterbox": "",          # empty = Chatterbox built-in baseline voice
+    "voxtral": "casual_male",
+}
+
+
+def resolve_engine(override: str | None = None) -> str:
+    """Pick the TTS engine. Priority: explicit override > WRIT_TTS_ENGINE env > STATION.tts_engine > kokoro."""
+    if override:
+        return override.lower()
+    env = os.environ.get("WRIT_TTS_ENGINE")
+    if env:
+        return env.strip().lower()
+    station_engine = getattr(STATION, "tts_engine", None)
+    if station_engine:
+        return str(station_engine).lower()
+    return "kokoro"
+
+
+def resolve_voice(voice: str | dict | None, engine: str) -> str:
+    """Resolve a voice spec to the per-engine voice id/path.
+
+    Accepts:
+      - str: legacy single-voice spec (treated as Kokoro voice for back-compat;
+        passed through unchanged for the active engine if it's kokoro).
+      - dict: {"kokoro": "...", "chatterbox": "...", "voxtral": "..."} — pick by engine.
+      - None: fall back to engine's built-in default.
+    """
+    if voice is None:
+        return _DEFAULT_ENGINE_VOICES.get(engine, "")
+    if isinstance(voice, dict):
+        if engine in voice and voice[engine] is not None:
+            return str(voice[engine])
+        return _DEFAULT_ENGINE_VOICES.get(engine, "")
+    # Plain string — assume legacy Kokoro voice id.
+    if engine == "kokoro":
+        return str(voice)
+    return _DEFAULT_ENGINE_VOICES.get(engine, "")
 
 
 def get_audio_duration(filepath: Path) -> float | None:
@@ -258,6 +304,8 @@ def render_kokoro(text: str, output_path: Path, voice: str = "am_michael") -> bo
         log("Kokoro venv not found")
         return False
 
+    # Subprocess runs with cwd=_KOKORO_DIR; resolve so relative paths still work.
+    output_path = Path(output_path).resolve()
     escaped_text = text.replace('\\', '\\\\').replace('"', '\\"').replace('\n', ' ')
 
     tts_script = f'''
@@ -299,6 +347,171 @@ print("SUCCESS")
     except Exception as e:
         log(f"Kokoro error: {e}")
         return False
+
+
+def render_chatterbox(
+    text: str,
+    output_path: Path,
+    voice: str = "",
+    exaggeration: float = 0.5,
+    cfg_weight: float = 0.5,
+) -> bool:
+    """Render text to speech using Resemble AI's Chatterbox.
+
+    voice is either an empty string (Chatterbox baseline voice) or a path to
+    a short reference WAV for voice cloning.
+    """
+    if not _CHATTERBOX_PYTHON.exists():
+        log("Chatterbox venv not found — run: cd mac/chatterbox && uv venv && uv pip install chatterbox-tts soundfile torch torchaudio 'setuptools<81'")
+        return False
+
+    output_path = Path(output_path).resolve()
+    escaped_text = text.replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ")
+    escaped_voice = voice.replace("\\", "\\\\").replace('"', '\\"') if voice else ""
+
+    tts_script = f'''
+import warnings
+warnings.filterwarnings("ignore")
+
+import torch
+import torchaudio as ta
+from chatterbox.tts import ChatterboxTTS
+
+if torch.cuda.is_available():
+    device = "cuda"
+elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+    device = "mps"
+else:
+    device = "cpu"
+
+model = ChatterboxTTS.from_pretrained(device=device)
+
+text = "{escaped_text}"
+voice_path = "{escaped_voice}"
+
+kwargs = {{"exaggeration": {exaggeration}, "cfg_weight": {cfg_weight}}}
+if voice_path:
+    kwargs["audio_prompt_path"] = voice_path
+
+wav = model.generate(text, **kwargs)
+ta.save("{output_path}", wav, model.sr)
+print("SUCCESS")
+'''
+
+    try:
+        result = subprocess.run(
+            [str(_CHATTERBOX_PYTHON), "-c", tts_script],
+            capture_output=True,
+            text=True,
+            timeout=900,
+            cwd=str(_CHATTERBOX_DIR),
+        )
+        if "SUCCESS" in result.stdout:
+            return True
+        log(f"Chatterbox failed: {result.stderr.strip().splitlines()[-1] if result.stderr.strip() else 'no stderr'}")
+        return False
+    except Exception as e:
+        log(f"Chatterbox error: {e}")
+        return False
+
+
+def render_voxtral(
+    text: str,
+    output_path: Path,
+    voice: str = "casual_male",
+    model_id: str | None = None,
+    sample_rate: int = 24000,
+) -> bool:
+    """Render text to speech using Mistral's Voxtral-4B-TTS via mlx-audio.
+
+    voice is either a preset id (casual_male, casual_female, neutral_male, ...)
+    or a path to a reference WAV for voice cloning.
+    """
+    if not _VOXTRAL_PYTHON.exists():
+        log("Voxtral venv not found — run: cd mac/voxtral && uv venv && uv pip install mlx-audio soundfile 'mistral-common[audio]'")
+        return False
+
+    chosen_model = model_id or os.environ.get(
+        "WRIT_VOXTRAL_MODEL", "mlx-community/Voxtral-4B-TTS-2603-mlx-4bit"
+    )
+
+    output_path = Path(output_path).resolve()
+    escaped_text = text.replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ")
+    escaped_voice = voice.replace("\\", "\\\\").replace('"', '\\"')
+    escaped_model = chosen_model.replace("\\", "\\\\").replace('"', '\\"')
+
+    tts_script = f'''
+import warnings
+warnings.filterwarnings("ignore")
+
+import numpy as np
+import soundfile as sf
+from mlx_audio.tts.utils import load
+
+model = load("{escaped_model}")
+
+text = "{escaped_text}"
+voice = "{escaped_voice}"
+
+segments = []
+for result in model.generate(text=text, voice=voice):
+    segments.append(np.asarray(result.audio))
+
+if not segments:
+    raise RuntimeError("Voxtral produced no audio")
+
+audio = segments[0] if len(segments) == 1 else np.concatenate(segments)
+sf.write("{output_path}", audio, {sample_rate})
+print("SUCCESS")
+'''
+
+    try:
+        result = subprocess.run(
+            [str(_VOXTRAL_PYTHON), "-c", tts_script],
+            capture_output=True,
+            text=True,
+            timeout=900,
+            cwd=str(_VOXTRAL_DIR),
+        )
+        if "SUCCESS" in result.stdout:
+            return True
+        log(f"Voxtral failed: {result.stderr.strip().splitlines()[-1] if result.stderr.strip() else 'no stderr'}")
+        return False
+    except Exception as e:
+        log(f"Voxtral error: {e}")
+        return False
+
+
+def render_speech(
+    text: str,
+    output_path: Path,
+    voice: str | dict | None = None,
+    *,
+    engine: str | None = None,
+) -> bool:
+    """Dispatch a TTS render to the active engine.
+
+    Args:
+        text: Text to speak.
+        output_path: Destination WAV.
+        voice: Either a single voice id/path (legacy) or a dict mapping
+            engine name -> voice id/path. None falls back to the engine default.
+        engine: Optional explicit engine override (else resolved from
+            WRIT_TTS_ENGINE env / station config / "kokoro").
+    """
+    eng = resolve_engine(engine)
+    if eng not in _SUPPORTED_ENGINES:
+        log(f"Unknown TTS engine '{eng}' — falling back to kokoro")
+        eng = "kokoro"
+    resolved_voice = resolve_voice(voice, eng)
+
+    if eng == "kokoro":
+        return render_kokoro(text, output_path, resolved_voice or "am_michael")
+    if eng == "chatterbox":
+        return render_chatterbox(text, output_path, resolved_voice)
+    if eng == "voxtral":
+        return render_voxtral(text, output_path, resolved_voice or "casual_male")
+    return False
 
 
 def concatenate_audio(chunk_files: list[Path], output_path: Path, gap_seconds: float = 0) -> bool:
@@ -344,13 +557,18 @@ def concatenate_audio(chunk_files: list[Path], output_path: Path, gap_seconds: f
         return False
 
 
-def render_single_voice(text: str, output_path: Path, voice: str) -> bool:
-    """Render a single-voice script to audio, chunking for long content."""
+def render_single_voice(text: str, output_path: Path, voice: str | dict | None) -> bool:
+    """Render a single-voice script to audio, chunking for long content.
+
+    Dispatches through render_speech to the configured TTS engine. `voice` can
+    be a legacy string (Kokoro voice) or a per-engine dict.
+    """
     MAX_CHUNK_WORDS = 100
     words = text.split()
+    engine = resolve_engine()
 
     if len(words) <= MAX_CHUNK_WORDS:
-        return render_kokoro(text, output_path, voice)
+        return render_speech(text, output_path, voice, engine=engine)
 
     sentences = re.split(r'(?<=[.!?])\s+', text)
 
@@ -371,9 +589,8 @@ def render_single_voice(text: str, output_path: Path, voice: str) -> bool:
     if current_chunk:
         chunks.append(' '.join(current_chunk))
 
-    log(f"  Rendering {len(chunks)} chunks with voice {voice}...")
+    log(f"  Rendering {len(chunks)} chunks via {engine} (voice: {resolve_voice(voice, engine)})...")
 
-    # Use a temp directory for chunks so the streamer doesn't consume them
     import tempfile
     tmp_dir = Path(tempfile.mkdtemp(prefix="writ_chunks_"))
 
@@ -382,7 +599,7 @@ def render_single_voice(text: str, output_path: Path, voice: str) -> bool:
     for i, chunk in enumerate(chunks):
         chunk_path = tmp_dir / f"chunk{i:03d}.wav"
         for attempt in range(2):
-            if render_kokoro(chunk, chunk_path, voice):
+            if render_speech(chunk, chunk_path, voice, engine=engine):
                 chunk_files.append(chunk_path)
                 break
             time.sleep(2)
@@ -398,7 +615,6 @@ def render_single_voice(text: str, output_path: Path, voice: str) -> bool:
         return False
 
     result = concatenate_audio(chunk_files, output_path)
-    # Clean up temp directory
     import shutil
     shutil.rmtree(tmp_dir, ignore_errors=True)
     return result

@@ -72,6 +72,7 @@ class StationConfig:
     home_dir: Path
     schedule_path: Path
     public_now_playing_paths: tuple[Path, ...] = ()
+    tts_engine: str = "kokoro"
 
     @property
     def runtime_dir(self) -> Path:
@@ -147,6 +148,7 @@ class StationConfig:
             "WRIT_CALL_SIGN": self.call_sign,
             "WRIT_AGENT_KIND": self.agent.kind,
             "WRIT_AGENT_COMMAND": self.agent.command,
+            "WRIT_TTS_ENGINE_DEFAULT": self.tts_engine,
             "WRIT_OUTPUT_DIR": str(self.output_dir),
             "WRIT_RUNTIME_DIR": str(self.runtime_dir),
             "WRIT_STATION_HOME": str(self.home_dir),
@@ -302,6 +304,7 @@ def load_station_config(station_id: str | None = None, path: Path = CONFIG_PATH)
         home_dir=_expand_path(paths.get("home_dir", home_default)) or Path.home() / ".writ",
         schedule_path=_expand_path(paths.get("schedule_path", "config/schedule.yaml")) or PROJECT_ROOT / "config" / "schedule.yaml",
         public_now_playing_paths=public_paths,
+        tts_engine=str(raw.get("tts_engine", "kokoro")).lower(),
     )
 
 

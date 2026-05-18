@@ -3,6 +3,10 @@ default_station: writ-fm
 stations:
   writ-fm:
     call_sign: WRIT-FM
+    # tts_engine selects the speech synthesis backend per station.
+    # Options: kokoro (default, fast), chatterbox (Resemble AI, voice cloning),
+    # voxtral (Mistral 4B, multilingual). Override at runtime with WRIT_TTS_ENGINE.
+    tts_engine: kokoro
     agent:
       kind: claude
       command: claude
@@ -25,6 +29,7 @@ stations:
 
   klod-fm:
     call_sign: KLOD-FM
+    tts_engine: kokoro
     agent:
       kind: claude
       command: claude
@@ -45,6 +50,7 @@ stations:
 
   cdex-fm:
     call_sign: CDEX-FM
+    tts_engine: kokoro
     agent:
       kind: codex
       command: codex

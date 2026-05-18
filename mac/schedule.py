@@ -116,7 +116,10 @@ class Show:
     topic_focus: str = ""
     segment_types: list[str] = field(default_factory=lambda: ["deep_dive"])
     bumper_style: str = "ambient"
-    voices: dict[str, str] = field(default_factory=dict)
+    # voices maps speaker key ("host", "guest", ...) to either:
+    #   - a single voice id string (legacy; treated as Kokoro voice)
+    #   - a per-engine dict: {"kokoro": "af_bella", "chatterbox": "./sample.wav", "voxtral": "casual_male"}
+    voices: dict[str, str | dict[str, str]] = field(default_factory=dict)
     # Legacy fields (optional, unused in the current music-forward mode)
     segment_after_tracks: int = 1
     podcasts_enabled: bool = False
@@ -163,7 +166,7 @@ class ResolvedShow:
     topic_focus: str
     segment_types: list[str]
     bumper_style: str
-    voices: dict[str, str]
+    voices: dict[str, str | dict[str, str]]
     # Legacy (kept for backward compat)
     segment_after_tracks: int = 1
     podcasts_enabled: bool = False
@@ -345,8 +348,15 @@ def load_schedule(path: Path) -> StationSchedule:
         segment_types = [str(s).strip() for s in segment_types_raw]
         bumper_style = str(cfg.get("bumper_style", "ambient")).strip()
 
-        # Voice config
-        voices = cfg.get("voices") if isinstance(cfg.get("voices"), dict) else {}
+        # Voice config: accept either a flat string per speaker (legacy Kokoro voice)
+        # or a per-engine dict {"kokoro": ..., "chatterbox": ..., "voxtral": ...}.
+        voices_raw = cfg.get("voices") if isinstance(cfg.get("voices"), dict) else {}
+        voices: dict[str, str | dict[str, str]] = {}
+        for speaker_key, value in voices_raw.items():
+            if isinstance(value, dict):
+                voices[str(speaker_key)] = {str(k): str(v) for k, v in value.items()}
+            else:
+                voices[str(speaker_key)] = str(value)
 
         # Legacy fields (optional)
         segment_after_tracks = int(cfg.get("segment_after_tracks", 1))
@@ -361,7 +371,7 @@ def load_schedule(path: Path) -> StationSchedule:
             topic_focus=topic_focus,
             segment_types=segment_types,
             bumper_style=bumper_style,
-            voices={str(k): str(v) for k, v in voices.items()},
+            voices=voices,
             segment_after_tracks=segment_after_tracks,
             podcasts_enabled=podcasts_enabled,
             music=dict(music) if music else {},
